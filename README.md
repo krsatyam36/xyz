@@ -1,8 +1,23 @@
-# XYZ - Agentic AI Coding CLI
+<div align="center">
 
-> A powerful, terminal-based agentic AI coding assistant powered by NVIDIA NIM API.
+# XYZ — Agentic AI Coding CLI
 
-XYZ is a CLI tool that brings AI-powered coding assistance directly to your terminal. It features tool-calling capabilities, session memory, Claude Code-inspired UI, and a local gateway that proxies requests to NVIDIA's NIM API with streaming support, caching, and token tracking.
+**v0.1.0** — *A powerful, terminal-based agentic AI coding assistant powered by NVIDIA NIM API*
+
+[![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat&logo=python&logoColor=white)](https://python.org)
+[![NVIDIA NIM](https://img.shields.io/badge/NVIDIA_NIM-API-76B900?style=flat&logo=nvidia&logoColor=white)](https://build.nvidia.com)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?style=flat&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![Rich](https://img.shields.io/badge/Rich-Terminal_UI-FC6D26?style=flat&logo=python&logoColor=white)](https://rich.readthedocs.io)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+---
+
+**Created by [Kumar Satyam](mailto:kumarsatyam3135@gmail.com)**  
+A terminal-based agentic AI coding assistant with tool-calling, session memory, Claude Code-inspired UI, and a local gateway that proxies requests to NVIDIA's NIM API with streaming support, caching, and token tracking.
+
+**Everything runs locally — only the AI inference is remote via NVIDIA NIM.**
+
+</div>
 
 ---
 
@@ -590,7 +605,4 @@ Add a new `Theme` entry to `THEMES` dict in `ui/themes.py`:
 
 ---
 
-## Created By
 
-**Kumar Satyam**
-- Email: kumarsatyam3135@gmail.com

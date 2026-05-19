@@ -1,0 +1,83 @@
+/* Main screen styles */
+MainScreen {
+    layout: vertical;
+    background: $background;
+}
+
+/* Layout containers */
+.header-area {
+    height: auto;
+    max-height: 12;
+}
+
+.chat-area {
+    height: 1fr;
+}
+
+.input-area {
+    height: auto;
+}
+
+.status-area {
+    height: auto;
+}
+
+/* Animations */
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+@keyframes slide-in {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+/* Message animations */
+ChatMessage {
+    animation: slide-in 0.3s ease-out;
+}
+
+/* Palette animations */
+CommandPalette {
+    animation: fade-in 0.2s ease-out;
+}
+
+/* Scrollbar styling */
+ScrollableContainer {
+    scrollbar-color: $accent $surface;
+    scrollbar-background: $surface;
+    scrollbar-color-hover: $accent-lighter $surface;
+}
+
+/* Focus effects */
+Input:focus {
+    border: round $accent;
+}
+
+/* Hover effects */
+DataTable:hover {
+    background: $surface-lighter;
+}
+
+/* Responsive adjustments */
+@media screen and (max-width: 80) {
+    HeaderPanel {
+        height: auto;
+    }
+    
+    CommandPalette {
+        width: 90%;
+    }
+}
