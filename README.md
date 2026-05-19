@@ -122,7 +122,7 @@ sequenceDiagram
         alt Blocked
             Safety-->>P: BLOCKED
             P->>UI: Show blocked message
-        alt Needs Confirmation
+        else Needs Confirmation
             Safety-->>P: CONFIRM
             P->>UI: Ask user [y/n]
         else Safe / Trusted
