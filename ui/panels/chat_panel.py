@@ -1,198 +1,114 @@
-"""Chat panel with message display and streaming support."""
-from textual.widgets import Static, ScrollableContainer
-from textual.containers import Vertical
+"""Chat panel with message display and streaming."""
+from textual.widgets import Static
+from textual.containers import ScrollableContainer
 from textual.reactive import reactive
-from rich.markdown import Markdown
-from rich.console import Console
-from rich.text import Text
 import asyncio
 
 
 class ChatMessage(Static):
-    """Individual chat message widget."""
-    
+    """A single chat message — content renders synchronously."""
+
     DEFAULT_CSS = """
     ChatMessage {
         padding: 1 2;
         margin: 0 0 1 0;
-        border: round $surface-lighter;
-        background: $surface;
+        background: transparent;
     }
-    
-    ChatMessage.user-message {
-        border: round $accent;
-        background: $surface;
-    }
-    
-    ChatMessage.assistant-message {
-        border: round $success;
-        background: $surface;
-    }
-    
-    ChatMessage.system-message {
-        border: round $warning;
-        background: $surface;
-    }
-    
-    ChatMessage .message-header {
-        color: $text-muted;
-        text-style: bold;
-        margin-bottom: 1;
-    }
-    
-    ChatMessage .message-content {
-        color: $text;
+
+    ChatMessage.user {
+        background: #1a1a1a;
     }
     """
-    
-    def __init__(self, role: str, content: str, **kwargs):
-        super().__init__(**kwargs)
+
+    def __init__(self, role: str, content: str = "", **kwargs):
+        rendered = self._format(role, content)
+        super().__init__(rendered, **kwargs)
         self.role = role
         self.content = content
-    
+
+    @staticmethod
+    def _format(role: str, content: str) -> str:
+        if role == "user":
+            return f"> {content}" if content else ">"
+        if role == "system":
+            return f"[#888888]{content}[/]" if content else ""
+        return content
+
     def on_mount(self) -> None:
-        """Render message content."""
-        self._render_message()
-    
-    def _render_message(self):
-        """Render message based on role."""
         if self.role == "user":
-            self.add_class("user-message")
-            header = "You"
-        elif self.role == "assistant":
-            self.add_class("assistant-message")
-            header = "XYZ"
-        else:
-            self.add_class("system-message")
-            header = "System"
-        
-        # Create message content
-        content_widget = Static(classes="message-content")
-        content_widget.update(self.content)
-        
-        # Add header and content
-        self.mount(Static(header, classes="message-header"))
-        self.mount(content_widget)
+            self.add_class("user")
+
+    def set_content(self, content: str) -> None:
+        """Update displayed content — safe to call after mount."""
+        self.content = content
+        self.update(self._format(self.role, content))
 
 
 class ChatPanel(ScrollableContainer):
-    """Main chat area with message display."""
-    
+    """Chat area — messages mount and stream here."""
+
     DEFAULT_CSS = """
     ChatPanel {
         height: 1fr;
-        padding: 1 2;
+        padding: 0 2;
         margin: 0 1;
-        border: round $surface-lighter;
-        background: $surface;
+        background: transparent;
         overflow-y: auto;
     }
-    
-    ChatPanel .welcome-message {
+
+    ChatPanel .welcome {
         padding: 2 4;
-        text-align: center;
-        color: $text-muted;
-    }
-    
-    ChatPanel .welcome-title {
-        color: $accent;
-        text-style: bold;
-        margin-bottom: 1;
-    }
-    
-    ChatPanel .welcome-text {
-        color: $text-muted;
-        margin-bottom: 2;
-    }
-    
-    ChatPanel .activity-indicator {
-        padding: 1 2;
-        color: $text-muted;
-        text-style: italic;
+        color: #888888;
     }
     """
-    
-    messages = reactive([])
-    
+
+    messages: list = reactive([])
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._welcome = None
+
     def compose(self):
-        """Create chat panel."""
-        yield Static(classes="welcome-message")
-    
+        self._welcome = Static(classes="welcome")
+        yield self._welcome
+
     def on_mount(self) -> None:
-        """Initialize chat panel."""
         self.messages = []
-    
+
     def add_welcome_message(self):
-        """Add welcome message to chat."""
-        welcome = self.query_one(".welcome-message", Static)
-        welcome.update(
-            "Welcome to XYZ AI Coding Assistant!\n\n"
-            "Type your message below or use /help to see available commands.\n\n"
-            "I can help you with:\n"
-            "• Reading and writing files\n"
-            "• Executing shell commands\n"
-            "• Searching code\n"
-            "• Answering programming questions\n\n"
-            "Let's get started!"
+        self._welcome.update(
+            "[#c890c8 bold]Welcome to XYZ![/]\n\n"
+            "[#888888]Type a message or /help for commands.[/]\n\n"
+            "[#888888]To connect, run:[/] [#c890c8]/login[/]"
         )
-    
+
     def add_user_message(self, content: str):
-        """Add user message to chat."""
         msg = ChatMessage("user", content)
         self.mount(msg)
         self.messages.append({"role": "user", "content": content})
-        self.scroll_end(animate=True)
-    
+        self.scroll_end(animate=False)
+
     def add_assistant_message(self, content: str):
-        """Add assistant message to chat."""
         msg = ChatMessage("assistant", content)
         self.mount(msg)
         self.messages.append({"role": "assistant", "content": content})
-        self.scroll_end(animate=True)
-    
+        self.scroll_end(animate=False)
+
     def add_system_message(self, content: str):
-        """Add system message to chat."""
         msg = ChatMessage("system", content)
         self.mount(msg)
         self.messages.append({"role": "system", "content": content})
-        self.scroll_end(animate=True)
-    
-    async def stream_assistant_message(self, content: str, delay: float = 0.02):
-        """Stream assistant message with typing effect."""
-        # Create message widget
+        self.scroll_end(animate=False)
+
+    def start_assistant_message(self) -> ChatMessage:
+        """Create an empty assistant message for streaming into."""
         msg = ChatMessage("assistant", "")
         self.mount(msg)
-        
-        # Get content widget
-        content_widget = msg.query_one(".message-content", Static)
-        
-        # Stream content character by character
-        streamed_content = ""
-        for char in content:
-            streamed_content += char
-            content_widget.update(streamed_content)
-            self.scroll_end(animate=False)
-            await asyncio.sleep(delay)
-        
-        # Add to messages
-        self.messages.append({"role": "assistant", "content": content})
-    
-    def add_activity_indicator(self, activity: str):
-        """Add activity indicator."""
-        indicator = Static(f"[{activity}]", classes="activity-indicator")
-        self.mount(indicator)
-        self.scroll_end(animate=True)
-        return indicator
-    
-    def remove_activity_indicator(self, indicator):
-        """Remove activity indicator."""
-        indicator.remove()
-    
+        self.scroll_end(animate=False)
+        return msg
+
     def clear_messages(self):
-        """Clear all messages."""
-        for child in self.query("ChatMessage"):
-            child.remove()
-        for child in self.query(".activity-indicator"):
+        for child in list(self.query("ChatMessage")):
             child.remove()
         self.messages = []
         self.add_welcome_message()

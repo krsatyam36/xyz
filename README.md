@@ -1,21 +1,19 @@
 <div align="center">
 
-# XYZ — Agentic AI Coding CLI
+# XYZ — Open Source AI Coding Agent
 
-**v0.1.0** — *A powerful, terminal-based agentic AI coding assistant powered by NVIDIA NIM API*
+**v0.2.0** — *An open source AI coding agent for the terminal, inspired by OpenCode and Claude Code*
 
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat&logo=python&logoColor=white)](https://python.org)
 [![NVIDIA NIM](https://img.shields.io/badge/NVIDIA_NIM-API-76B900?style=flat&logo=nvidia&logoColor=white)](https://build.nvidia.com)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?style=flat&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
-[![Rich](https://img.shields.io/badge/Rich-Terminal_UI-FC6D26?style=flat&logo=python&logoColor=white)](https://rich.readthedocs.io)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Rich](https://img.shields.io/badge/Rich-13.7+-FC6D26?style=flat&logo=python&logoColor=white)](https://rich.readthedocs.io)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)](.github/workflows/ci.yml)
 
----
+**Created by [Kumar Satyam](mailto:kumarsatyam3135@gmail.com)**
 
-**Created by [Kumar Satyam](mailto:kumarsatyam3135@gmail.com)**  
-A terminal-based agentic AI coding assistant with tool-calling, session memory, Claude Code-inspired UI, and a local gateway that proxies requests to NVIDIA's NIM API with streaming support, caching, and token tracking.
-
-**Everything runs locally — only the AI inference is remote via NVIDIA NIM.**
+A powerful terminal-based AI coding agent with tool-calling, multi-agent architecture, session memory, streaming responses, and a local FastAPI gateway proxying to NVIDIA's NIM API.
 
 </div>
 
@@ -23,38 +21,91 @@ A terminal-based agentic AI coding assistant with tool-calling, session memory, 
 
 ## Table of Contents
 
+- [Overview](#overview)
 - [Features](#features)
 - [Architecture](#architecture)
 - [Project Structure](#project-structure)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
+- [Usage](#usage)
+  - [Ask Questions](#ask-questions)
+  - [Make Changes](#make-changes)
+  - [Undo/Redo Changes](#undoredo-changes)
 - [Commands](#commands)
 - [Slash Commands](#slash-commands)
+- [Agents](#agents)
+- [Tools](#tools)
 - [Themes](#themes)
-- [Agent Tools](#agent-tools)
 - [Safety System](#safety-system)
 - [Session Management](#session-management)
 - [Gateway API](#gateway-api)
 - [Configuration](#configuration)
 - [Development](#development)
-- [Created By](#created-by)
+- [Testing](#testing)
+
+---
+
+## Overview
+
+XYZ is an **open source AI coding agent** that runs in your terminal. It connects to NVIDIA's NIM API to provide an AI-powered assistant that can:
+
+- Read, write, and edit files in your project
+- Execute shell commands for builds, tests, git operations
+- Search your codebase with regex and glob patterns
+- Fetch web content and search the web
+- Manage session history with undo/redo
+- Operate in multiple agent modes (Build, Plan, Explore)
+
+**Everything runs locally — only the AI inference is remote via NVIDIA NIM.**
 
 ---
 
 ## Features
 
-- **Agentic Tool Calling** - AI can read/write files, execute shell commands, search code, and list directories
-- **Streaming Responses** - Real-time token-by-token output from the model
-- **Session Memory** - Persistent conversations with file history tracking and undo support
-- **Safety First** - Hard-blocked dangerous commands with confirmation prompts for unknown operations
-- **Claude Code-Inspired UI** - Clean header, tips panel, what's new section, and organized command list
-- **Themeable UI** - 6 built-in themes including Claude-inspired default theme
-- **Model Discovery** - Automatically discovers available models from NVIDIA NIM
-- **Response Caching** - LRU cache for faster repeated queries
-- **Token Tracking** - Monitor prompt/completion token usage across sessions
-- **Trust Mode** - Toggle confirmation prompts for experienced users
-- **Status Bar** - Real-time activity indicator showing current state (thinking, reading, writing, executing)
-- **Interactive Model Picker** - Browse and select from available models
+```mermaid
+mindmap
+  root((XYZ))
+    Agent System
+      Build Mode
+      Plan Mode
+      Explore Mode
+      Multi-turn loops
+      Tool orchestration
+    File Operations
+      Read files
+      Write files
+      Edit files (precise)
+      Apply patches
+      List directories
+    Code Search
+      grep (regex)
+      Glob patterns
+      File tree
+    Web Access
+      Fetch URLs
+      Web search
+    Safety
+      Hard-blocked commands
+      Safe command lists
+      Confirmation prompts
+      Trust mode
+    Session Management
+      Persistent sessions
+      File history
+      Undo / Redo
+      Session export
+    Terminal UI
+      Rich-based CLI
+      Textual TUI
+      6 built-in themes
+      Streaming responses
+      Status bar
+    Gateway
+      FastAPI proxy
+      LRU caching
+      Token tracking
+      SSE streaming
+```
 
 ---
 
@@ -62,38 +113,42 @@ A terminal-based agentic AI coding assistant with tool-calling, session memory, 
 
 ```mermaid
 graph TB
-    subgraph "Terminal"
-        CLI[main.py CLI]
-        UI[TerminalUI]
+    subgraph "Terminal Client"
+        CLI[main.py - Typer CLI]
+        TUI[Textual TUI - ui/app.py]
+        RTUI[Rich Terminal UI - ui/terminal.py]
     end
 
-    subgraph "Agent"
+    subgraph "Agent Layer"
         Planner[AgentPlanner]
         Memory[SessionMemory]
-        Parser[Tool Parser]
+        Parser[Tool Parser - 4 formats]
         Safety[Safety Checker]
-        Tools[Tool Registry]
+        Tools[Tool Registry - 11 tools]
     end
 
-    subgraph "Gateway"
-        FastAPI[FastAPI App]
-        Provider[NIMProvider]
-        Cache[LRU Cache]
+    subgraph "Gateway Layer"
+        FastAPI[FastAPI Gateway]
+        Provider[NIMProvider - NVIDIA]
+        Cache[LRU Cache - 500 entries]
         Tracker[Token Tracker]
     end
 
     subgraph "External"
         NIM[NVIDIA NIM API]
+        Web[Web / Search]
     end
 
     subgraph "Storage"
-        Config[config.json]
-        Sessions[sessions/*.json]
+        Config[~/.xyz/config.json]
+        Sessions[~/.xyz/sessions/*.json]
         Keyring[OS Keyring]
+        Agents[AGENTS.md]
     end
 
-    CLI --> UI
     CLI --> Planner
+    TUI --> Planner
+    RTUI --> Planner
     Planner --> Memory
     Planner --> Parser
     Planner --> Safety
@@ -103,10 +158,11 @@ graph TB
     FastAPI --> Cache
     FastAPI --> Tracker
     Provider --> NIM
+    Tools --> Web
     CLI --> Config
     Memory --> Sessions
     CLI --> Keyring
-    UI --> Config
+    Planner --> Agents
 ```
 
 ### Request Flow
@@ -114,49 +170,30 @@ graph TB
 ```mermaid
 sequenceDiagram
     participant U as User
-    participant CLI as CLI (main.py)
-    participant UI as TerminalUI
+    participant CLI as CLI / TUI
     participant P as AgentPlanner
     participant G as Gateway (FastAPI)
     participant NIM as NVIDIA NIM API
-    participant M as SessionMemory
+    participant T as Tools
 
-    U->>CLI: Type message
-    CLI->>UI: Display input
-    CLI->>P: process(user_input, model)
-    P->>M: Add user message
-    P->>G: POST /v1/chat (stream)
-    G->>NIM: Forward request with tools
-    NIM-->>G: Stream chunks
-    G-->>P: SSE events (tokens/tool_calls)
-    P->>UI: Stream tokens to terminal
+    U->>CLI: Type message or command
+    CLI->>P: process(input, model)
 
-    alt Tool Call Detected
-        P->>Parser: Parse tool call
-        P->>Safety: Check command safety
-        alt Blocked
-            Safety-->>P: BLOCKED
-            P->>UI: Show blocked message
-        else Needs Confirmation
-            Safety-->>P: CONFIRM
-            P->>UI: Ask user [y/n]
-        else Safe / Trusted
-            P->>Tools: Execute tool
-            Tools-->>P: Result
-            P->>UI: Display result
-            P->>M: Track file write
-            P->>G: Send tool result
-            G->>NIM: Continue conversation
-            NIM-->>G: Next response
-            G-->>P: Stream response
-            P->>UI: Stream output
-        end
-    else No Tool Call
-        P->>M: Save assistant message
+    P->>G: POST /v1/chat (streaming)
+    G->>NIM: Forward with tools
+    NIM-->>G: Stream tokens + tool calls
+    G-->>P: SSE events
+
+    alt Tool Call
+        P->>T: Execute tool
+        T-->>P: Result
+        P->>G: Feed result back
+        G->>NIM: Continue conversation
+    else Text Response
+        P-->>CLI: Display response
     end
 
-    P-->>CLI: Done
-    CLI->>UI: Show separator
+    CLI-->>U: Show output
 ```
 
 ---
@@ -165,24 +202,35 @@ sequenceDiagram
 
 ```
 xyz/
-├── main.py              # CLI entry point (Typer)
-├── config.py            # Configuration, API key, sessions
+├── main.py              # CLI entry point (Typer) + 30+ slash commands
+├── config.py            # Configuration, API key, sessions, exports
+├── pyproject.toml       # Modern Python packaging & tool config
 ├── __init__.py          # Package metadata
 ├── agent/
-│   ├── planner.py       # Agent loop with tool orchestration
-│   ├── memory.py        # Session memory with file history
-│   ├── parser.py        # Multi-format tool call parser
-│   ├── safety.py        # Command safety checker
-│   └── tools.py         # Tool implementations & registry
+│   ├── planner.py       # Agent loop with multi-agent support
+│   ├── memory.py        # Session memory with undo/redo
+│   ├── parser.py        # Multi-format tool call parser (4 formats)
+│   ├── safety.py        # Command safety checker (layered)
+│   └── tools.py         # 11 tool implementations & registry
 ├── gateway/
-│   ├── app.py           # FastAPI gateway server
+│   ├── app.py           # FastAPI gateway server (6 endpoints)
 │   ├── providers.py     # NVIDIA NIM API provider
 │   └── cache.py         # LRU response cache
 ├── ui/
-│   ├── terminal.py      # Rich-based terminal UI (Claude Code-inspired)
-│   └── themes.py        # Theme definitions
-└── utils/
-    └── files.py         # Git context & file tree utilities
+│   ├── terminal.py      # Rich-based terminal UI
+│   ├── themes.py        # 6 theme definitions
+│   ├── app.py           # Textual TUI application
+│   ├── panels/          # TUI panels (header, chat, input, status)
+│   └── widgets/         # TUI widgets (stream text, activity)
+├── utils/
+│   └── files.py         # Git context & file tree utilities
+├── tests/
+│   ├── test_tools.py    # Tool function tests
+│   ├── test_safety.py   # Safety system tests
+│   ├── test_memory.py   # Session memory tests
+│   └── test_config.py   # Configuration tests
+└── .github/workflows/
+    └── ci.yml           # GitHub Actions CI
 ```
 
 ---
@@ -192,18 +240,19 @@ xyz/
 ### Prerequisites
 
 - Python 3.10+
-- NVIDIA NIM API key (get one at [build.nvidia.com](https://build.nvidia.com))
+- NVIDIA NIM API key (free at [build.nvidia.com](https://build.nvidia.com))
 
 ### Setup
 
 ```bash
-# Clone or navigate to the project directory
+# Clone the repository
+git clone https://github.com/krsatyam36/xyz.git
 cd xyz
 
 # Install dependencies
 pip install -r requirements.txt
 
-# Install as editable package
+# Install in editable mode
 pip install -e .
 
 # Initialize with your API key
@@ -216,13 +265,14 @@ xyz init
 |---------|---------|
 | `typer` | CLI framework |
 | `rich` | Terminal UI rendering |
+| `textual` | Full TUI framework |
 | `httpx` | Async HTTP client |
 | `fastapi` | Gateway server |
 | `uvicorn` | ASGI server |
 | `pydantic` | Data validation |
 | `orjson` | Fast JSON parsing |
 | `keyring` | Secure API key storage |
-| `prompt_toolkit` | Interactive model picker |
+| `prompt_toolkit` | Interactive input |
 
 ---
 
@@ -231,20 +281,60 @@ xyz init
 ```bash
 # Initialize XYZ (first time only)
 xyz init
-# Enter your NVIDIA NIM API key when prompted
 
-# Start a chat session
+# Start a chat session (Build mode)
 xyz chat
 
-# Or just run xyz (defaults to chat)
-xyz
+# Plan mode (read-only analysis)
+xyz plan
+
+# Explore mode (search codebase)
+xyz explore
 
 # Use a specific model
 xyz chat --model meta/llama-3.3-70b-instruct
 
-# Resume a previous session
+# Resume a session
 xyz chat --session abc12345
+
+# Install dev tools
+pip install -e ".[dev]"
 ```
+
+---
+
+## Usage
+
+### Ask Questions
+
+Ask XYZ about your codebase:
+
+```
+How is authentication handled in this project?
+```
+
+XYZ will read files, grep for patterns, and explain the code to you.
+
+### Make Changes
+
+XYZ can create, edit, and modify files:
+
+```
+Add a new route /health that returns {"status": "ok"} to the FastAPI app.
+```
+
+It will read the file, make precise edits, and show you what changed.
+
+### Undo/Redo Changes
+
+If a change isn't what you wanted:
+
+```
+/undo    # Revert the last file change
+/redo    # Restore a reverted change
+```
+
+Every file write is tracked in session memory — you can undo multiple changes.
 
 ---
 
@@ -253,12 +343,16 @@ xyz chat --session abc12345
 | Command | Description |
 |---------|-------------|
 | `xyz init` | Initialize and set up API key |
-| `xyz chat` | Start interactive chat session |
+| `xyz chat` | Start interactive chat (Build mode) |
+| `xyz plan` | Start a planning session (read-only) |
+| `xyz explore` | Start an exploration session |
 | `xyz run` | Start chat (alias for `chat`) |
 | `xyz models` | List available models |
 | `xyz sessions` | List saved sessions |
 | `xyz themes` | List and set themes |
-| `xyz undo <session-id>` | Undo last file write in a session |
+| `xyz undo <id>` | Undo last file write in a session |
+| `xyz doctor` | Diagnose installation |
+| `xyz version` | Show version info |
 
 ### Chat Options
 
@@ -274,138 +368,167 @@ Options:
 
 ## Slash Commands
 
-While in a chat session, use these commands:
+All commands are fully implemented in chat sessions:
 
 | Command | Description |
 |---------|-------------|
 | `/help` | Show all available commands |
-| `/model` | Interactive model picker (browse and select from available models) |
+| `/init` | Create AGENTS.md for the project |
+| `/model` | Interactive model picker |
 | `/models` | List all available models |
 | `/themes [name]` | List or set a theme |
-| `/trust [on/off]` | Toggle trust mode for commands |
+| `/trust [on/off]` | Toggle trust mode |
+| `/connect` | Connect a provider |
+| `/login` | Sign in with API key |
+| `/logout` | Sign out |
 | `/sessions` | List saved sessions |
-| `/resume <id>` | Resume a previous session |
-| `/context` | Show repository context summary |
-| `/clear` | Clear conversation history |
-| `/compact` | Summarize and compress context |
-| `/export` | Export conversation to markdown |
+| `/resume <id>` | Resume a session |
+| `/new` or `/clear` | New session |
 | `/undo` | Undo last file change |
-| `/exit` | Exit XYZ |
-| `/config` | Open config panel |
+| `/redo` | Redo last undo |
+| `/context` | Show repository context |
+| `/compact` | Compact session context |
+| `/export` | Export conversation to markdown |
+| `/config` | Show config paths |
 | `/diff` | View uncommitted changes |
-| `/doctor` | Diagnose XYZ installation |
-| `/effort` | Set effort level for model usage |
+| `/doctor` | Diagnose installation |
+| `/effort [level]` | Set effort level (auto/low/medium/high/max) |
 | `/fast` | Toggle fast mode |
+| `/goal <desc>` | Set a session goal |
 | `/feedback` | Submit feedback |
 | `/focus` | Toggle focus view |
-| `/goal` | Set a goal for the session |
-| `/hooks` | View hook configurations |
-| `/ide` | Manage IDE integrations |
-| `/keybindings` | Configure keybindings |
-| `/login` | Sign in |
-| `/logout` | Sign out |
-| `/branch` | Create a conversation branch |
-| `/background` | Send session to background |
-| `/btw` | Ask a side question |
+| `/hooks` | View tool hooks |
+| `/ide` | IDE integration status |
+| `/keybindings` | Show keybindings |
+| `/branch` | Branch conversation |
+| `/background` | Background session |
+| `/btw <question>` | Ask side question |
 | `/copy` | Copy last response |
-| `/advisor` | Configure Advisor Tool |
-| `/agents` | Manage agent configurations |
-| `/color` | Set prompt bar color |
-| `/install-github-app` | Set up GitHub Actions |
-| `/add-dir` | Add a working directory |
+| `/advisor` | Advisor tool status |
+| `/agents` | List available agents |
+| `/color <name>` | Set prompt color |
+| `/share` | Share current session |
+| `/unshare` | Unshare session |
+| `/add-dir <path>` | Add working directory |
+| `/install-github-app` | GitHub App setup |
+| `/details` | Toggle execution details |
+| `/quit` or `/exit` | Exit XYZ |
 
 ---
 
-## Status Bar
+## Agents
 
-XYZ displays a live status bar at the bottom of the terminal showing current activity:
-
-```
-● Ready  ·  llama-3.3-70b-instruct
-⠋ Thinking  ·  llama-3.3-70b-instruct
- Reading  · read_file  ·  llama-3.3-70b-instruct
-✏️ Writing  · write_file  ·  llama-3.3-70b-instruct
-⚡ Executing  · execute_shell  ·  llama-3.3-70b-instruct
-🔍 Searching  · search_files  ·  llama-3.3-70b-instruct
-```
-
-The status bar updates in real-time as the agent works.
-
----
-
-## Interactive Model Picker
-
-Type `/model` in chat to open an interactive model selector:
-
-```
-Select model
-Switch models. Applies to this session.
-
-  1. meta/llama-3.3-70b-instruct ✓
-  2. deepseek-ai/deepseek-coder-6.7b-instruct
-  3. google/gemma-2-2b-it
-  4. mistralai/mistral-7b-instruct-v0.3
-  ...
-
-Enter number to select, or 'q' to cancel
->
-```
-
----
-
-## Themes
-
-XYZ ships with 6 built-in themes:
-
-| Theme | Description |
-|-------|-------------|
-| **claude** | Claude Code inspired - warm copper/orange tones (default) |
-| **midnight** | Deep dark blues and soft whites |
-| **obsidian** | Pure dark with warm accents |
-| **aurora** | Northern lights inspired greens and purples |
-| **solarized** | Classic solarized dark palette |
-| **monokai** | Vibrant monokai colors |
-
-Change theme in-chat with `/themes <name>` or via the `xyz themes` command.
-
----
-
-## Agent Tools
-
-The agent has access to these tools during conversations:
+XYZ features a multi-agent architecture with different modes for different tasks:
 
 ```mermaid
 graph LR
-    subgraph "Tool Registry"
-        RF[read_file]
-        WF[write_file]
-        LD[list_directory]
-        ES[execute_shell]
-        SF[search_files]
+    subgraph "Primary Agents"
+        BUILD[Build - All tools]
+        PLAN[Plan - Read only]
+        EXPLORE[Explore - Search only]
     end
 
-    RF --> |Reads file content| FS[(File System)]
-    WF --> |Creates/overwrites files| FS
-    LD --> |Lists entries| FS
-    ES --> |Runs commands| Shell[Shell]
-    SF --> |grep search| FS
+    subgraph "Usage"
+        TAB[Tab to switch]
+        CLI[xyz chat / plan / explore]
+    end
+
+    BUILD --> |Default| Full[Full file + shell access]
+    PLAN --> |Analysis| Read[Read + search only]
+    EXPLORE --> |Research| Search[Grep + glob + read]
+
+    TAB --> BUILD
+    TAB --> PLAN
+    CLI --> BUILD
+```
+
+| Agent | Mode | Description |
+|-------|------|-------------|
+| **Build** | Primary (default) | Full tool access — read, write, edit, shell, search |
+| **Plan** | Primary | Read-only analysis — no file modifications |
+| **Explore** | Primary | Search and read only — grep, glob, read |
+| **General** | Subagent | Research and multi-step tasks |
+| **Compact** | System | Session compaction (auto) |
+| **Title** | System | Session title generation (auto) |
+
+Switch between Build and Plan mode by pressing **Tab**, or start directly:
+```bash
+xyz chat      # Build mode
+xyz plan      # Plan mode
+xyz explore   # Explore mode
+```
+
+---
+
+## Tools
+
+XYZ provides **11 built-in tools** that the AI can use:
+
+```mermaid
+graph TB
+    subgraph "File Operations"
+        RF[read_file] --> FS[(File System)]
+        WF[write_file] --> FS
+        EF[edit_file] --> FS
+        AP[apply_patch] --> FS
+        LD[list_directory] --> FS
+    end
+
+    subgraph "Code Search"
+        GF[grep_files] --> FS
+        GL[glob_files] --> FS
+        SF[search_files] --> FS
+    end
+
+    subgraph "Shell & Web"
+        ES[execute_shell] --> SH[Shell]
+        WB[webfetch] --> WWW[Web]
+        WS[websearch] --> WWW
+    end
+
+    subgraph "Usage"
+        CRUD[Read / Write / Edit / Delete]
+        SEARCH[Regex / Glob / Grep]
+        EXEC[Build / Test / Git]
+    end
 ```
 
 ### Tool Details
 
 | Tool | Description | Parameters |
 |------|-------------|------------|
-| `read_file` | Read file contents (truncated to 10KB) | `path` |
-| `write_file` | Write/create a file (creates parent dirs) | `path`, `content` |
+| `read_file` | Read file contents (with optional line range) | `path`, `offset?`, `limit?` |
+| `write_file` | Create or overwrite a file | `path`, `content` |
+| `edit_file` | Precise text replacement (CRUD edit) | `path`, `old_string`, `new_string` |
+| `apply_patch` | Apply unified diff patches | `patch_text` |
 | `list_directory` | List directory entries | `path` |
-| `execute_shell` | Run shell command (60s timeout) | `command` |
-| `search_files` | Search for patterns in code files | `pattern`, `path` |
+| `execute_shell` | Run shell command | `command`, `description?`, `timeout?` |
+| `grep_files` | Regex search across files | `pattern`, `path?`, `include?` |
+| `glob_files` | Find files by glob pattern | `pattern`, `path?` |
+| `search_files` | Legacy file search | `pattern`, `path?` |
+| `webfetch` | Fetch web page content | `url` |
+| `websearch` | Search the web | `query` |
+
+---
+
+## Themes
+
+XYZ ships with **6 built-in themes**:
+
+| Theme | Description |
+|-------|-------------|
+| **claude** | Claude Code inspired — warm copper/orange tones (default) |
+| **midnight** | Deep dark blues and soft whites |
+| **obsidian** | Pure dark with warm accents |
+| **aurora** | Northern lights inspired greens and purples |
+| **solarized** | Classic solarized dark palette |
+| **monokai** | Vibrant monokai colors |
+
+Change theme in-chat with `/themes <name>` or via `xyz themes`.
 
 ---
 
 ## Safety System
-
-XYZ includes a multi-layer safety system for shell command execution:
 
 ```mermaid
 flowchart TD
@@ -418,21 +541,6 @@ flowchart TD
     Trust -->|No| Confirm[Ask user for confirmation]
     Confirm -->|Yes| Execute
     Confirm -->|No| Block
-
-    subgraph "Hard Blocked Patterns"
-        BP1[rm -rf /]
-        BP2[sudo commands]
-        BP3[shutdown/reboot]
-        BP4[mkfs, dd, format]
-        BP5[curl/wget piped to shell]
-    end
-
-    subgraph "Safe Commands"
-        SP1[ls, pwd, cat, grep]
-        SP2[git status/log/diff]
-        SP3[pip/npm install]
-        SP4[python, pytest, make]
-    end
 ```
 
 ### Blocked Categories
@@ -443,11 +551,17 @@ flowchart TD
 - **Remote Execution**: `curl | bash`, `wget | sh`
 - **Fork Bombs**: `:(){ :|:& };:`
 
+### Safe Commands (no confirmation needed)
+
+- `ls`, `pwd`, `cd`, `cat`, `grep`, `find`
+- `git status`, `git log`, `git diff`, `git branch`
+- `pip install`, `npm install`, `npm run`
+- `python`, `python3`, `pytest`, `make`
+- `curl`, `wget` (non-piped)
+
 ---
 
 ## Session Management
-
-Sessions are automatically saved and can be resumed:
 
 ```mermaid
 graph LR
@@ -456,42 +570,72 @@ graph LR
         Created[Created Timestamp]
         Messages[Message History]
         Files[File History]
-        Context[Context Files]
+        Redo[Redo Stack]
     end
 
-    subgraph "Storage"
-        JSON[~/.xyz/sessions/*.json]
+    subgraph "Operations"
+        Save[Auto-save]
+        Load[Resume]
+        Export[Markdown Export]
+        Delete[Delete]
     end
 
-    ID --> JSON
-    Created --> JSON
-    Messages --> JSON
-    Files --> JSON
-    Context --> JSON
+    ID --> Storage[(~/.xyz/sessions/)]
+    Created --> Storage
+    Messages --> Storage
+    Files --> Storage
+    Redo --> Storage
 ```
 
-### File History & Undo
+Sessions are automatically saved and can be resumed:
 
-Every file write is tracked in session memory, enabling undo:
+```bash
+xyz sessions                     # List sessions
+xyz chat --session abc12345      # Resume a session
+xyz undo abc12345                # Undo from a session
+xyz session-delete abc12345      # Delete a session
+xyz session-export abc12345      # Export to markdown
+```
+
+### File History & Undo/Redo
+
+Every file write and edit is tracked:
 
 ```
-xyz undo <session-id>
+/undo  # Revert the last file change
+/redo  # Restore a reverted change
 ```
-
-Or in-chat: `/undo`
 
 ---
 
 ## Gateway API
 
-The local gateway runs on a free port and provides these endpoints:
+The local gateway runs on a free port (auto-detected):
+
+```mermaid
+graph LR
+    subgraph "Gateway Endpoints"
+        Health[GET /health]
+        Chat[POST /v1/chat]
+        NoStream[POST /v1/chat/non-stream]
+        Models[GET /v1/models]
+        Stats[GET /v1/stats]
+        Cache[POST /v1/cache/clear]
+    end
+
+    Health --> |Status OK| Client
+    Chat --> |SSE Stream| Client
+    NoStream --> |JSON Response| Client
+    Models --> |Model List| Client
+    Stats --> |Usage + Cache| Client
+```
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/health` | GET | Health check |
-| `/v1/chat` | POST | Streaming chat completion |
+| `/v1/chat` | POST | Streaming chat completion (SSE) |
 | `/v1/chat/non-stream` | POST | Non-streaming chat completion |
-| `/v1/models` | GET | List available models |
+| `/v1/models` | GET | List available NVIDIA NIM models |
 | `/v1/stats` | GET | Token usage and cache stats |
 | `/v1/cache/clear` | POST | Clear response cache |
 
@@ -504,7 +648,7 @@ data: {"type":"token","data":"Hello"}
 data: {"type":"token","data":" world"}
 data: {"type":"tool_call","data":"{...}"}
 data: {"type":"usage","data":"{...}"}
-data: {"type":"done","content":"Hello world","tool_calls":[],"usage":{...}}
+data: {"type":"done","content":"...","tool_calls":[],"usage":{...}}
 ```
 
 ---
@@ -522,48 +666,58 @@ Configuration is stored at `~/.xyz/config.json`:
   "trust_mode": false,
   "theme": "claude",
   "discovered_models": [],
-  "last_model_fetch": null
+  "effor_level": "auto",
+  "fast_mode": false,
+  "compact_auto": true,
+  "share_enabled": "manual"
 }
 ```
 
-API keys are stored securely in your OS keyring (not in the config file).
+API keys can be set via:
+1. **OS Keyring** (default, secure) — `xyz init`
+2. **Environment Variable** — `export XYZ_API_KEY=nvapi-...`
+3. **`/login` command** — in-chat authentication
 
-### Default Models
+### Directory Structure
 
-| Model | Provider |
-|-------|----------|
-| `meta/llama-3.3-70b-instruct` | Meta (default) |
-| `meta/llama-3.1-405b-instruct` | Meta |
-| `meta/llama-3.1-70b-instruct` | Meta |
-| `meta/llama-3.1-8b-instruct` | Meta |
-| `qwen/qwen-2.5-coder-32b-instruct` | Alibaba |
-| `qwen/qwen-2.5-72b-instruct` | Alibaba |
-| `microsoft/phi-4` | Microsoft |
-| `google/gemma-2-27b-it` | Google |
-| `mistralai/mistral-large-2-instruct` | Mistral AI |
-| `deepseek-ai/deepseek-r1` | DeepSeek |
+```
+~/.xyz/
+├── config.json        # Main configuration
+├── sessions/          # Session data (*.json)
+├── cache/             # Response cache
+├── logs/              # Gateway and app logs
+├── providers/         # Provider configs
+├── commands/          # Custom commands
+├── agents/            # Custom agents
+└── themes/            # Custom themes
+```
 
 ---
 
 ## Development
 
-### Running from Source
-
 ```bash
-# Install in editable mode
-pip install -e .
+# Install in editable mode with dev dependencies
+pip install -e ".[dev]"
+
+# Install pre-commit hooks
+pre-commit install
+
+# Run linting
+ruff check xyz/
+ruff format xyz/ --check
+
+# Run type checking
+mypy --ignore-missing-imports xyz/
+
+# Run tests
+pytest tests/ -v
+
+# Run tests with coverage
+pytest tests/ --cov=xyz --cov-report=term-missing
 
 # Run directly
 python -m xyz.main
-
-# Or use the entry point
-xyz
-```
-
-### Running Tests
-
-```bash
-pytest tests/
 ```
 
 ### Adding a New Tool
@@ -572,37 +726,44 @@ pytest tests/
 2. Implement the function in `agent/tools.py`
 3. Register in `TOOL_REGISTRY`
 4. Update `SYSTEM_PROMPT` in `agent/planner.py`
-5. Add to `tool_names` in `agent/parser.py`
+5. Add to tool names in `agent/parser.py`
+6. Write tests in `tests/`
 
 ### Adding a New Theme
 
-Add a new `Theme` entry to `THEMES` dict in `ui/themes.py`:
+Add a new `Theme` entry to `THEMES` dict in `ui/themes.py`.
 
-```python
-"mytheme": Theme(
-    name="My Theme",
-    description="Custom theme",
-    primary="bold cyan",
-    secondary="green",
-    # ... other fields
-)
+### CI/CD
+
+GitHub Actions workflow runs on push/PR:
+- **Lint**: ruff + mypy
+- **Test**: pytest on Python 3.10, 3.11, 3.12
+- **Coverage**: Report via pytest-cov
+
+---
+
+## Testing
+
+```bash
+# Run all tests
+pytest tests/ -v
+
+# Run specific test file
+pytest tests/test_tools.py -v
+
+# Run with coverage
+pytest tests/ --cov=xyz --cov-report=html
+
+# Run safety tests
+pytest tests/test_safety.py -v
 ```
 
 ---
 
-## Changelog
+<div align="center">
 
-### v0.1.0
+**Created with by [Kumar Satyam](mailto:kumarsatyam3135@gmail.com)**
 
-- Initial release
-- Claude Code-inspired UI with clean header, tips panel, and what's new section
-- 6 built-in themes including Claude-inspired default
-- Agentic tool calling with safety system
-- Session memory with file history and undo
-- Streaming responses from NVIDIA NIM API
-- Interactive model picker
-- Token tracking and response caching
+[GitHub](https://github.com/krsatyam36/xyz) | [Report Issue](https://github.com/krsatyam36/xyz/issues)
 
----
-
-
+</div>

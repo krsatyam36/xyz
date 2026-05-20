@@ -88,11 +88,20 @@ COMMANDS_LIST = [
 ]
 
 
+AGENTS_LIST = [
+    ("@build", "Default agent with all tools enabled (Tab to switch)"),
+    ("@plan", "Plan mode - analyze code without making changes"),
+    ("@explore", "Explore mode - search and read code only"),
+    ("@general", "General-purpose subagent for research tasks"),
+]
+
 TIPS = [
     "Type your message to start coding",
     "Use /help to see all commands",
     "Use /model to switch models",
     "Use /themes to change appearance",
+    "Tab to switch between Build/Plan agents",
+    "Use @ to mention files in your message",
 ]
 
 WHAT_NEW = [

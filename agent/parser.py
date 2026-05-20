@@ -19,7 +19,7 @@ def _parse_json_objects(content: str) -> list[dict]:
     if not content or not isinstance(content, str):
         return calls
     
-    tool_names = {"read_file", "write_file", "list_directory", "execute_shell", "search_files"}
+    tool_names = {"read_file", "write_file", "edit_file", "apply_patch", "list_directory", "execute_shell", "search_files", "grep_files", "glob_files", "webfetch", "websearch"}
 
     depth = 0
     start = -1
@@ -98,7 +98,7 @@ def _parse_native(content: str) -> list[dict]:
 
 def _parse_function_call(content: str) -> list[dict]:
     calls = []
-    tool_names = ["read_file", "write_file", "list_directory", "execute_shell", "search_files"]
+    tool_names = ["read_file", "write_file", "edit_file", "apply_patch", "list_directory", "execute_shell", "search_files", "grep_files", "glob_files", "webfetch", "websearch"]
 
     for tool_name in tool_names:
         pattern = rf'{tool_name}\s*\((.*?)\)'
@@ -122,7 +122,7 @@ def extract_text_response(content: str) -> str:
         r'\{[^{}]*\}',
         r'<tool\s+name="[^"]+">.*?</tool>',
         r'__TOOL_CALL__:.*?__',
-        r'(?:read_file|write_file|list_directory|execute_shell|search_files)\s*\([^)]*\)',
+        r'(?:read_file|write_file|edit_file|apply_patch|list_directory|execute_shell|search_files|grep_files|glob_files|webfetch|websearch)\s*\([^)]*\)',
     ]:
         content = re.sub(pattern, '', content, flags=re.DOTALL)
     return content.strip()

@@ -1,2 +1,2 @@
-"""XYZ - Agentic AI Coding CLI"""
-__version__ = "0.1.0"
+"""XYZ - Open Source AI Coding Agent"""
+__version__ = "0.2.0"

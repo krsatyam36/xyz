@@ -1,6 +1,7 @@
 import os
 import json
 import keyring
+import shutil
 from pathlib import Path
 from typing import Optional
 from pydantic import BaseModel, Field
@@ -11,6 +12,10 @@ SESSIONS_DIR = XYZ_DIR / "sessions"
 CACHE_DIR = XYZ_DIR / "cache"
 LOGS_DIR = XYZ_DIR / "logs"
 PROVIDERS_DIR = XYZ_DIR / "providers"
+COMMANDS_DIR = XYZ_DIR / "commands"
+AGENTS_DIR = XYZ_DIR / "agents"
+THEMES_DIR = XYZ_DIR / "themes"
+PLUGINS_DIR = XYZ_DIR / "plugins"
 
 SERVICE_NAME = "xyz-cli"
 KEYRING_KEY = "nim_api_key"
@@ -45,6 +50,11 @@ class XYZConfig(BaseModel):
     theme: str = "claude"
     discovered_models: list[str] = Field(default_factory=list)
     last_model_fetch: Optional[str] = None
+    effor_level: str = "auto"
+    fast_mode: bool = False
+    compact_auto: bool = True
+    share_enabled: str = "manual"
+    autoupdate: bool = True
 
 
 def ensure_dirs():
@@ -53,6 +63,10 @@ def ensure_dirs():
     CACHE_DIR.mkdir(exist_ok=True)
     LOGS_DIR.mkdir(exist_ok=True)
     PROVIDERS_DIR.mkdir(exist_ok=True)
+    COMMANDS_DIR.mkdir(exist_ok=True)
+    AGENTS_DIR.mkdir(exist_ok=True)
+    THEMES_DIR.mkdir(exist_ok=True)
+    PLUGINS_DIR.mkdir(exist_ok=True)
 
 
 def load_config() -> XYZConfig:
@@ -70,6 +84,9 @@ def save_config(config: XYZConfig):
 
 
 def get_api_key() -> Optional[str]:
+    api_key_from_env = os.environ.get("XYZ_API_KEY")
+    if api_key_from_env:
+        return api_key_from_env
     try:
         return keyring.get_password(SERVICE_NAME, KEYRING_KEY)
     except Exception:
@@ -146,3 +163,67 @@ def list_sessions() -> list[dict]:
         except Exception:
             continue
     return sorted(sessions, key=lambda x: x["created"], reverse=True)
+
+
+def delete_session(session_id: str) -> bool:
+    path = get_session_file(session_id)
+    if path.exists():
+        path.unlink()
+        return True
+    return False
+
+
+def get_config_paths() -> dict:
+    return {
+        "config": str(CONFIG_FILE),
+        "sessions": str(SESSIONS_DIR),
+        "cache": str(CACHE_DIR),
+        "logs": str(LOGS_DIR),
+        "providers": str(PROVIDERS_DIR),
+        "commands": str(COMMANDS_DIR),
+        "agents": str(AGENTS_DIR),
+    }
+
+
+def export_session(session_id: str) -> Optional[str]:
+    data = load_session(session_id)
+    if not data:
+        return None
+    lines = [f"# XYZ Session: {session_id}", f"# Created: {data.get('created', '')}", ""]
+    for msg in data.get("messages", []):
+        role = msg.get("role", "unknown")
+        content = msg.get("content", "")
+        lines.append(f"### {role.upper()}")
+        lines.append("")
+        lines.append(content)
+        lines.append("")
+    return "\n".join(lines)
+
+
+def init_project_agents():
+    agents_md = Path.cwd() / "AGENTS.md"
+    if not agents_md.exists():
+        content = f"""# XYZ Project Context
+
+## Project
+{Path.cwd().name}
+
+## Tech Stack
+- Python 3.10+
+- NVIDIA NIM API for AI inference
+
+## Conventions
+- Follow existing code patterns
+- Use type hints in Python
+- Keep functions focused and well-named
+- Write tests for new functionality
+
+## Running
+```bash
+pip install -e ".[dev]"
+pytest tests/
+```
+"""
+        agents_md.write_text(content)
+        return True
+    return False

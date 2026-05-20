@@ -1,73 +1,48 @@
-"""Input panel with multiline support and modern styling."""
-from textual.widgets import Input, Static, Label
-from textual.containers import Horizontal, Vertical
+"""Input panel with prompt and message input."""
+from textual.widgets import Input, Static
+from textual.containers import Horizontal
 from textual.binding import Binding
 
 
-class InputPanel(Vertical):
-    """Bottom input panel with message input."""
-    
+class InputPanel(Horizontal):
+    """Bottom input line with prompt symbol."""
+
     DEFAULT_CSS = """
     InputPanel {
-        height: auto;
-        padding: 1 2;
-        margin: 0 1 1 1;
-        border: round $accent;
-        background: $surface;
-    }
-    
-    InputPanel .input-container {
-        height: auto;
-        padding: 0 1;
-    }
-    
-    InputPanel #message-input {
-        width: 100%;
         height: 3;
+        padding: 0 2;
+        margin: 0 1;
+        background: #0d0d0d;
+    }
+
+    InputPanel #input-prompt {
+        width: 2;
+        color: #c890c8;
+        text-style: bold;
+        content-align: left middle;
+    }
+
+    InputPanel #message-input {
+        width: 1fr;
         border: none;
         background: transparent;
-        color: $text;
-        padding: 0 1;
+        color: #e0e0e0;
     }
-    
+
     InputPanel #message-input:focus {
         border: none;
         background: transparent;
     }
-    
-    InputPanel .input-hint {
-        color: $text-muted;
-        padding: 0 1;
-        margin-top: 1;
-    }
-    
-    InputPanel .prompt-symbol {
-        color: $success;
-        text-style: bold;
-        padding-right: 1;
-    }
     """
-    
-    BINDINGS = [
-        Binding("shift+enter", "newline", "New Line", show=False),
-    ]
-    
+
     def compose(self):
-        """Create input panel."""
-        yield Horizontal(
-            Static(">", classes="prompt-symbol"),
-            Input(
-                placeholder="Type your message... (Shift+Enter for new line)",
-                id="message-input",
-            ),
-            classes="input-container",
+        """Create input line."""
+        yield Static("> ", id="input-prompt")
+        yield Input(
+            placeholder="Type your message...",
+            id="message-input",
         )
-        yield Static("Press Enter to send • Ctrl+P for commands • Esc to cancel", classes="input-hint")
-    
-    def action_newline(self):
-        """Add newline to input."""
-        input_widget = self.query_one("#message-input", Input)
-        current_value = input_widget.value
-        input_widget.value = current_value + "\n"
-        # Move cursor to end
-        input_widget.cursor_position = len(input_widget.value)
+
+    def on_mount(self) -> None:
+        """Focus the input."""
+        self.query_one("#message-input", Input).focus()

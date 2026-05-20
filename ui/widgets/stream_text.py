@@ -9,12 +9,12 @@ class StreamText(Static):
     
     DEFAULT_CSS = """
     StreamText {
-        color: $text;
+        color: #ffffff;
         padding: 0;
     }
     
     StreamText .cursor {
-        color: $accent;
+        color: #ff9500;
         text-style: bold;
     }
     """

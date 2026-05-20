@@ -1,5 +1,5 @@
 """Status bar with model info, context usage, and system status."""
-from textual.widgets import Static, Label
+from textual.widgets import Static
 from textual.containers import Horizontal
 from textual.reactive import reactive
 from datetime import datetime
@@ -8,70 +8,48 @@ import asyncio
 
 class StatusBar(Horizontal):
     """Bottom status bar with system information."""
-    
+
     DEFAULT_CSS = """
     StatusBar {
         height: 3;
         padding: 0 2;
-        margin: 0 1 1 1;
-        border: round $surface-lighter;
-        background: $surface;
-        align: left middle;
+        margin: 0 1;
+        background: transparent;
     }
-    
+
     StatusBar .status-item {
         padding: 0 2;
-        color: $text-muted;
+        color: #888888;
     }
-    
-    StatusBar .status-label {
-        color: $text-muted;
-    }
-    
+
     StatusBar .status-value {
-        color: $accent;
+        color: #c890c8;
         text-style: bold;
     }
-    
+
     StatusBar .status-value.success {
-        color: $success;
+        color: #00ff00;
     }
-    
+
     StatusBar .status-value.warning {
-        color: $warning;
+        color: #ffaa00;
     }
-    
-    StatusBar .status-value.error {
-        color: $error;
-    }
-    
-    StatusBar .status-separator {
-        color: $surface-lighter;
-        padding: 0 1;
-    }
-    
+
     StatusBar .status-right {
-        margin-left: auto;
         padding: 0 2;
-        color: $text-muted;
+        color: #888888;
     }
-    
+
     StatusBar .status-indicator {
-        width: 1;
-        height: 1;
         margin-right: 1;
     }
-    
+
     StatusBar .status-indicator.ready {
-        color: $success;
+        color: #00ff00;
     }
-    
+
     StatusBar .status-indicator.thinking {
-        color: $warning;
-    }
-    
-    StatusBar .status-indicator.busy {
-        color: $error;
+        color: #ffaa00;
     }
     """
     
@@ -133,24 +111,25 @@ class StatusBar(Horizontal):
         self.run_worker(update_clock)
     
     def set_status(self, status: str):
-        """Set current status."""
+        """Set current status. Safe to call during teardown."""
         self.current_status = status
-        indicator = self.query_one("#status-indicator", Static)
-        
-        if status == "ready":
-            indicator.update("●")
-            indicator.remove_class("thinking", "busy")
-            indicator.add_class("ready")
-        elif status == "thinking":
-            indicator.update("◌")
-            indicator.remove_class("ready", "busy")
-            indicator.add_class("thinking")
-        elif status == "busy":
-            indicator.update("◉")
-            indicator.remove_class("ready", "thinking")
-            indicator.add_class("busy")
-        
-        self._update_display()
+        try:
+            indicator = self.query_one("#status-indicator", Static)
+            if status == "ready":
+                indicator.update("●")
+                indicator.remove_class("thinking", "busy")
+                indicator.add_class("ready")
+            elif status == "thinking":
+                indicator.update("◌")
+                indicator.remove_class("ready", "busy")
+                indicator.add_class("thinking")
+            elif status == "busy":
+                indicator.update("◉")
+                indicator.remove_class("ready", "thinking")
+                indicator.add_class("busy")
+            self._update_display()
+        except Exception:
+            pass
     
     def set_trust(self, enabled: bool):
         """Set trust mode."""

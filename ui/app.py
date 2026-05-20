@@ -1,321 +1,414 @@
-"""XYZ - AI Coding Runtime - Textual TUI Application"""
+"""XYZ - AI Coding Runtime - Full Agentic TUI"""
 from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, Static, Input, DataTable, Label
-from textual.containers import Container, Vertical, Horizontal, ScrollableContainer
+from textual.widgets import Static, Input
 from textual.screen import Screen
 from textual.binding import Binding
-from textual.css.query import NoMatches
-from textual.reactive import reactive
 from textual import work
-from textual.worker import Worker, get_current_worker
-
-from datetime import datetime
 import asyncio
-import random
+import json
+import os
+import traceback
 
-from ui.panels.header_panel import HeaderPanel
-from ui.panels.chat_panel import ChatPanel
-from ui.panels.input_panel import InputPanel
-from ui.panels.status_bar import StatusBar
-from ui.panels.command_palette import CommandPalette
-from ui.widgets.stream_text import StreamText
-from ui.widgets.activity_indicator import ActivityIndicator
+from xyz.ui.panels.header_panel import HeaderPanel
+from xyz.ui.panels.chat_panel import ChatPanel, ChatMessage
+from xyz.ui.panels.input_panel import InputPanel
+from xyz.ui.panels.status_bar import StatusBar
+from xyz.gateway.providers import NIMProvider
+from xyz.config import load_config, get_api_key, set_api_key, discover_models, save_config, validate_api_key
+from xyz.agent.tools import TOOL_DEFINITIONS, TOOL_REGISTRY, execute_shell
+from xyz.agent.safety import is_hard_blocked
+from xyz.agent.memory import SessionMemory
+
+
+AGENT_PROMPT = """You are XYZ, an expert AI coding assistant with file system access.
+
+You have these tools:
+- read_file(path) — read a file
+- write_file(path, content) — create or overwrite a file
+- list_directory(path) — list a directory
+- execute_shell(command) — run a shell command
+- search_files(pattern, path) — search files for a pattern
+
+Rules:
+1. For coding tasks, use tools to read files first, then make changes
+2. Write complete, working code — never leave placeholders
+3. After using tools, explain what was done
+4. When creating projects, plan the structure first, then create files
+5. For shell commands, prefer safe operations
+"""
 
 
 class MainScreen(Screen):
-    """Main chat screen with full interface."""
-    
     CSS_PATH = "styles/main.tcss"
-    
-    BINDINGS = [
-        Binding("ctrl+p", "toggle_palette", "Commands", show=True),
-        Binding("ctrl+l", "clear_chat", "Clear", show=False),
-        Binding("escape", "hide_palette", "Close", show=False),
-    ]
-    
-    palette_visible = reactive(False)
-    
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._provider = None
+        self._awaiting_api_key = False
+
+    def _get_provider(self):
+        if self._provider is None:
+            key = get_api_key()
+            if key:
+                self._provider = NIMProvider(key)
+        return self._provider
+
     def compose(self) -> ComposeResult:
-        """Create the main layout."""
         yield HeaderPanel(id="header-panel")
         yield ChatPanel(id="chat-panel")
         yield InputPanel(id="input-panel")
         yield StatusBar(id="status-bar")
-        yield CommandPalette(id="command-palette")
-    
+
     def on_mount(self) -> None:
-        """Called when screen is mounted."""
-        self.palette_visible = False
-        self.query_one("#command-palette").display = False
-        
-        # Add welcome message
-        chat_panel = self.query_one("#chat-panel", ChatPanel)
-        chat_panel.add_welcome_message()
-        
-        # Focus input
+        chat = self.query_one("#chat-panel", ChatPanel)
+        chat.add_welcome_message()
+        config = load_config()
+        bar = self.query_one("#status-bar", StatusBar)
+        bar.current_model = config.default_model
+        if not get_api_key():
+            chat.add_system_message("Not logged in — run [bold #c890c8]/login[/]")
         self.query_one("#message-input", Input).focus()
-    
-    def action_toggle_palette(self) -> None:
-        """Toggle command palette visibility."""
-        palette = self.query_one("#command-palette", CommandPalette)
-        self.palette_visible = not self.palette_visible
-        palette.display = self.palette_visible
-        if self.palette_visible:
-            palette.focus_filter()
-    
-    def action_hide_palette(self) -> None:
-        """Hide command palette."""
-        if self.palette_visible:
-            self.palette_visible = False
-            self.query_one("#command-palette", CommandPalette).display = False
-            self.query_one("#message-input", Input).focus()
-    
-    def action_clear_chat(self) -> None:
-        """Clear chat history."""
-        chat_panel = self.query_one("#chat-panel", ChatPanel)
-        chat_panel.clear_messages()
-    
+
+    def action_clear_chat(self):
+        self.query_one("#chat-panel", ChatPanel).clear_messages()
+
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        """Handle message submission."""
-        if event.input.id == "message-input":
-            message = event.value.strip()
-            if not message:
-                return
-            
-            # Hide palette if visible
-            if self.palette_visible:
-                self.action_hide_palette()
-            
-            # Process command or message
-            if message.startswith("/"):
-                self._handle_command(message)
-            else:
-                self._handle_message(message)
-            
-            # Clear input
-            event.input.value = ""
-    
-    def _handle_command(self, command: str) -> None:
-        """Handle slash commands."""
-        chat_panel = self.query_one("#chat-panel", ChatPanel)
-        cmd = command.lower().split()[0]
-        
-        commands = {
-            "/help": self._cmd_help,
-            "/models": self._cmd_models,
-            "/tools": self._cmd_tools,
-            "/trust": self._cmd_trust,
-            "/context": self._cmd_context,
-            "/clear": self._cmd_clear,
+        if event.input.id != "message-input":
+            return
+        msg = event.value.strip()
+        if not msg:
+            return
+        if self._awaiting_api_key:
+            self._handle_api_key(msg)
+            return
+        if msg.startswith("/"):
+            self._handle_command(msg)
+        else:
+            self._handle_message(msg)
+        event.input.value = ""
+
+    def _handle_command(self, cmd: str) -> None:
+        chat = self.query_one("#chat-panel", ChatPanel)
+        parts = cmd.split()
+        command = parts[0].lower()
+        handler = {
+            "/help": lambda _: chat.add_system_message(
+                "Commands: [bold #c890c8]/help /login /model /models /clear /status /init /quit[/]"
+            ),
+            "/init": lambda _: chat.add_system_message("✓ XYZ ready — run [bold #c890c8]/login[/]"),
+            "/login": lambda _: (chat.add_system_message("Enter your NVIDIA NIM API key and press Enter"), setattr(self, "_awaiting_api_key", True), self.query_one("#message-input", Input).focus()),
+            "/clear": lambda _: chat.clear_messages(),
+            "/quit": lambda _: self.app.exit(),
             "/status": self._cmd_status,
-            "/quit": self._cmd_quit,
-            "/export": self._cmd_export,
-            "/history": self._cmd_history,
-            "/settings": self._cmd_settings,
-        }
-        
-        handler = commands.get(cmd)
+            "/model": self._cmd_model,
+            "/models": self._cmd_models,
+        }.get(command)
         if handler:
-            handler(command)
+            handler(cmd)
         else:
-            chat_panel.add_system_message(f"Unknown command: {cmd}")
-    
-    def _handle_message(self, message: str) -> None:
-        """Handle user message."""
-        chat_panel = self.query_one("#chat-panel", ChatPanel)
-        
-        # Add user message
-        chat_panel.add_user_message(message)
-        
-        # Simulate AI response with streaming
-        self._simulate_ai_response(message)
-    
+            chat.add_system_message(f"Unknown: {command}")
+
+    def _cmd_status(self, _):
+        chat = self.query_one("#chat-panel", ChatPanel)
+        bar = self.query_one("#status-bar", StatusBar)
+        s = bar.get_full_status()
+        chat.add_system_message("Status:\n" + "\n".join(f"  {k}: {v}" for k, v in s.items()))
+
+    def _cmd_model(self, cmd):
+        chat = self.query_one("#chat-panel", ChatPanel)
+        bar = self.query_one("#status-bar", StatusBar)
+        parts = cmd.split()
+        if len(parts) < 2:
+            chat.add_system_message("Usage: /model <name>")
+            return
+        name = parts[1]
+        cfg = load_config()
+        cfg.default_model = name
+        save_config(cfg)
+        bar.current_model = name
+        chat.add_system_message(f"Model → [bold]{name}[/]")
+
+    def _cmd_models(self, _):
+        chat = self.query_one("#chat-panel", ChatPanel)
+        models = load_config().discovered_models or []
+        if not models and get_api_key():
+            models = discover_models(get_api_key())
+        if not models:
+            from xyz.config import DEFAULT_MODELS
+            models = list(DEFAULT_MODELS)
+        text = "Models:\n" + "\n".join(f"  ○ {m}" for m in models[:20])
+        if len(models) > 20:
+            text += f"\n  … +{len(models)-20} more"
+        chat.add_system_message(text)
+
+    def _handle_message(self, text: str) -> None:
+        chat = self.query_one("#chat-panel", ChatPanel)
+        if not self._get_provider():
+            chat.add_user_message(text)
+            chat.add_system_message("Run [bold #c890c8]/login[/] first")
+            return
+        chat.add_user_message(text)
+        self._agentic_loop(text)
+
+    def _handle_api_key(self, key: str) -> None:
+        chat = self.query_one("#chat-panel", ChatPanel)
+        bar = self.query_one("#status-bar", StatusBar)
+        inp = self.query_one("#message-input", Input)
+        self._awaiting_api_key = False
+        inp.value = ""
+        if not key:
+            chat.add_system_message("Cancelled")
+            return
+        chat.add_system_message("Validating...")
+        if validate_api_key(key):
+            set_api_key(key)
+            self._provider = NIMProvider(key)
+            chat.add_system_message("✓ Authenticated")
+            discover_models(key)
+            bar.set_status("ready")
+        else:
+            chat.add_system_message("Invalid key, try again")
+            self._cmd_login("")
+
+    def _cmd_login(self, _=None):
+        chat = self.query_one("#chat-panel", ChatPanel)
+        chat.add_system_message("Enter your NVIDIA NIM API key and press Enter")
+        self._awaiting_api_key = True
+        self.query_one("#message-input", Input).focus()
+
+    # ── Agentic loop ────────────────────────────────────────────────────
+
     @work(exclusive=True)
-    async def _simulate_ai_response(self, user_message: str) -> None:
-        """Simulate AI response with streaming effect."""
-        chat_panel = self.query_one("#chat-panel", ChatPanel)
-        status_bar = self.query_one("#status-bar", StatusBar)
-        
-        # Show thinking state
-        status_bar.set_status("thinking")
-        
-        # Simulate processing delay
-        await asyncio.sleep(0.5)
-        
-        # Create streaming response
-        responses = [
-            "I'll help you with that. Let me analyze your request and provide a comprehensive solution.\n\n",
-            "Here's what I found:\n\n",
-            "```python\n# Example code\ndef hello():\n    print('Hello from XYZ!')\n```\n\n",
-            "This should work perfectly for your use case. Let me know if you need any modifications!",
-        ]
-        
-        full_response = "".join(responses)
-        
-        # Stream the response
-        await chat_panel.stream_assistant_message(full_response)
-        
-        # Update status
-        status_bar.set_status("ready")
-    
-    def _cmd_help(self, command: str) -> None:
-        """Show help."""
-        chat_panel = self.query_one("#chat-panel", ChatPanel)
-        help_text = """## Available Commands
+    async def _agentic_loop(self, user_text: str) -> None:
+        chat = self.query_one("#chat-panel", ChatPanel)
+        bar = self.query_one("#status-bar", StatusBar)
+        provider = self._get_provider()
+        if not provider:
+            return
 
-| Command | Description |
-|---------|-------------|
-| `/help` | Show this help message |
-| `/models` | Browse available models |
-| `/use <model>` | Switch to a model |
-| `/tools` | List available tools |
-| `/trust [on|off]` | Toggle trust mode |
-| `/context` | Show context usage |
-| `/settings` | Open settings |
-| `/clear` | Clear conversation |
-| `/export` | Export conversation |
-| `/history` | Show conversation history |
-| `/status` | Show system status |
-| `/quit` | Exit XYZ |
+        config = load_config()
+        model = config.default_model
+        display_model = model.split("/")[-1] if "/" in model else model
 
-**Keyboard Shortcuts:**
-- `Ctrl+P` - Open command palette
-- `Ctrl+L` - Clear chat
-- `Esc` - Close palette
-- `Shift+Enter` - New line in input
-"""
-        chat_panel.add_system_message(help_text)
-    
-    def _cmd_models(self, command: str) -> None:
-        """Show models."""
-        chat_panel = self.query_one("#chat-panel", ChatPanel)
-        models = [
-            "meta/llama-3.3-70b-instruct",
-            "meta/llama-3.1-405b-instruct",
-            "qwen/qwen-2.5-coder-32b-instruct",
-            "qwen/qwen-2.5-72b-instruct",
-            "microsoft/phi-4",
-            "google/gemma-2-27b-it",
-            "mistralai/mistral-large-2-instruct",
-            "deepseek-ai/deepseek-r1",
+        messages = [
+            {"role": "system", "content": AGENT_PROMPT.replace("{cwd}", os.getcwd())},
+            {"role": "user", "content": user_text},
         ]
-        
-        text = "## Available Models\n\n"
-        for i, model in enumerate(models, 1):
-            marker = "●" if i == 1 else "○"
-            text += f"{marker} `{model}`\n"
-        
-        chat_panel.add_system_message(text)
-    
-    def _cmd_tools(self, command: str) -> None:
-        """Show tools."""
-        chat_panel = self.query_one("#chat-panel", ChatPanel)
-        tools = [
-            ("read_file", "Read file contents"),
-            ("write_file", "Write/create files"),
-            ("list_directory", "List directory contents"),
-            ("execute_shell", "Execute shell commands"),
-            ("search_files", "Search for patterns in files"),
-        ]
-        
-        text = "## Available Tools\n\n"
-        for name, desc in tools:
-            text += f"- **{name}** - {desc}\n"
-        
-        chat_panel.add_system_message(text)
-    
-    def _cmd_trust(self, command: str) -> None:
-        """Toggle trust mode."""
-        chat_panel = self.query_one("#chat-panel", ChatPanel)
-        status_bar = self.query_one("#status-bar", StatusBar)
-        
-        parts = command.split()
-        if len(parts) > 1:
-            status = parts[1].lower()
-            if status in ("on", "true", "1"):
-                status_bar.set_trust(True)
-                chat_panel.add_system_message("Trust mode: **ON**")
-            elif status in ("off", "false", "0"):
-                status_bar.set_trust(False)
-                chat_panel.add_system_message("Trust mode: **OFF**")
-        else:
-            current = status_bar.toggle_trust()
-            chat_panel.add_system_message(f"Trust mode: **{'ON' if current else 'OFF'}**")
-    
-    def _cmd_context(self, command: str) -> None:
-        """Show context usage."""
-        chat_panel = self.query_one("#chat-panel", ChatPanel)
-        status_bar = self.query_one("#status-bar", StatusBar)
-        
-        context = status_bar.get_context_usage()
-        text = f"## Context Usage\n\n"
-        text += f"- **Used:** {context['used']}\n"
-        text += f"- **Total:** {context['total']}\n"
-        text += f"- **Available:** {context['available']}\n"
-        text += f"- **Percentage:** {context['percentage']}%\n"
-        
-        chat_panel.add_system_message(text)
-    
-    def _cmd_clear(self, command: str) -> None:
-        """Clear chat."""
-        chat_panel = self.query_one("#chat-panel", ChatPanel)
-        chat_panel.clear_messages()
-        chat_panel.add_welcome_message()
-    
-    def _cmd_status(self, command: str) -> None:
-        """Show system status."""
-        chat_panel = self.query_one("#chat-panel", ChatPanel)
-        status_bar = self.query_one("#status-bar", StatusBar)
-        
-        status = status_bar.get_full_status()
-        text = "## System Status\n\n"
-        for key, value in status.items():
-            text += f"- **{key}:** {value}\n"
-        
-        chat_panel.add_system_message(text)
-    
-    def _cmd_quit(self, command: str) -> None:
-        """Quit application."""
-        self.app.exit()
-    
-    def _cmd_export(self, command: str) -> None:
-        """Export conversation."""
-        chat_panel = self.query_one("#chat-panel", ChatPanel)
-        chat_panel.add_system_message("Export feature coming soon!")
-    
-    def _cmd_history(self, command: str) -> None:
-        """Show history."""
-        chat_panel = self.query_one("#chat-panel", ChatPanel)
-        chat_panel.add_system_message("History feature coming soon!")
-    
-    def _cmd_settings(self, command: str) -> None:
-        """Show settings."""
-        chat_panel = self.query_one("#chat-panel", ChatPanel)
-        chat_panel.add_system_message("Settings panel coming soon!")
+
+        for turn in range(15):
+            bar.set_status("thinking")
+
+            if turn > 0:
+                chat.add_system_message(f"─ [bold]Step {turn + 1}[/] ─")
+
+            msg = chat.start_assistant_message()
+            content_parts = []
+            tool_buffers = {}
+
+            try:
+                async for chunk in provider.chat_completion(
+                    model=model,
+                    messages=messages,
+                    tools=TOOL_DEFINITIONS,
+                    stream=True,
+                ):
+                    if not msg.is_mounted:
+                        break
+                    if chunk.startswith("__TOOL_CALL__:"):
+                        raw = chunk[len("__TOOL_CALL__:"):-len("__")]
+                        try:
+                            tc = json.loads(raw)
+                        except json.JSONDecodeError:
+                            continue
+                        idx = tc.get("index", 0)
+                        if idx not in tool_buffers:
+                            tool_buffers[idx] = {"id": "", "function": {"name": "", "arguments": ""}}
+                        buf = tool_buffers[idx]
+                        if "id" in tc:
+                            buf["id"] = tc["id"]
+                        if "function" in tc:
+                            fn = tc["function"]
+                            if "name" in fn:
+                                buf["function"]["name"] += fn["name"]
+                            if "arguments" in fn:
+                                buf["function"]["arguments"] += fn["arguments"]
+                    elif chunk.startswith("__USAGE__:"):
+                        continue
+                    else:
+                        content_parts.append(chunk)
+                        if msg.is_mounted:
+                            msg.set_content("".join(content_parts))
+                            chat.scroll_end(animate=False)
+
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                if msg.is_mounted:
+                    msg.set_content(f"[#ff6b6b]Error: {e}[/]")
+                bar.set_status("ready")
+                return
+
+            content = "".join(content_parts)
+
+            # If model produced text and no tool calls, we're done
+            if content.strip() and not tool_buffers:
+                chat.messages.append({"role": "assistant", "content": content})
+                bar.set_status("ready")
+                return
+
+            # If model produced no text and no tools, we're done
+            if not content.strip() and not tool_buffers:
+                msg.set_content("[#888888]No response[/]")
+                bar.set_status("ready")
+                return
+
+            # If only tool calls (no text), remove the empty assistant message
+            if not content.strip() and tool_buffers:
+                msg.remove()
+                msg = None
+
+            # Add assistant message to context (empty string if no text)
+            messages.append({"role": "assistant", "content": content})
+
+            # Add tool call entries (non-final — we replace with results below)
+            if tool_buffers:
+                # Build OpenAI-style tool_calls for the context
+                openai_calls = []
+                for idx in sorted(tool_buffers.keys()):
+                    tc = tool_buffers[idx]
+                    name = tc["function"]["name"]
+                    args_str = tc["function"]["arguments"]
+                    call_id = tc["id"] or f"call_{idx}"
+
+                    # Validate and try to parse arguments
+                    try:
+                        if args_str.strip():
+                            json.loads(args_str)
+                    except json.JSONDecodeError:
+                        args_str = "{}"
+
+                    openai_calls.append({
+                        "id": call_id,
+                        "type": "function",
+                        "function": {"name": name, "arguments": args_str},
+                    })
+
+                # Attach tool_calls to the assistant message
+                if openai_calls:
+                    messages[-1]["tool_calls"] = openai_calls
+
+                # Execute each tool and add results
+                for idx in sorted(tool_buffers.keys()):
+                    tc = tool_buffers[idx]
+                    name = tc["function"]["name"]
+                    args_str = tc["function"]["arguments"]
+
+                    try:
+                        args = json.loads(args_str) if args_str.strip() else {}
+                    except json.JSONDecodeError:
+                        chat.add_system_message(f"[#ff6b6b]Invalid args for {name}[/]")
+                        args = {}
+
+                    if not name:
+                        continue
+
+                    # Show what tool is being called
+                    args_preview = ", ".join(f"{k}={v!r}" for k, v in list(args.items())[:3])
+                    if len(args) > 3:
+                        args_preview += ", …"
+                    call_id = tc.get("id", f"call_{idx}")
+
+                    chat.add_system_message(f"→ [bold]{name}[/]({args_preview})")
+
+                    # Safety check for shell commands
+                    if name == "execute_shell":
+                        cmd = args.get("command", "")
+                        blocked, reason = is_hard_blocked(cmd)
+                        if blocked:
+                            result = {"error": reason}
+                            chat.add_system_message(f"[#ff6b6b]Blocked: {reason}[/]")
+                        else:
+                            result = execute_shell(**args)
+                    else:
+                        tool_fn = TOOL_REGISTRY.get(name)
+                        if tool_fn:
+                            try:
+                                result = tool_fn(**args)
+                            except Exception as e:
+                                result = {"error": str(e)}
+                        else:
+                            result = {"error": f"Unknown tool: {name}"}
+
+                    # Show result summary
+                    if "error" in result:
+                        chat.add_system_message(f"[#ff6b6b]{result['error']}[/]")
+                    else:
+                        summary = self._summarize_result(name, result)
+                        chat.add_system_message(summary)
+
+                    messages.append({
+                        "role": "tool",
+                        "content": json.dumps(result),
+                        "tool_call_id": call_id,
+                        "name": name,
+                    })
+
+        # Max turns reached
+        bar.set_status("ready")
+
+    def _summarize_result(self, name: str, result: dict) -> str:
+        """Create a short summary of a tool result."""
+        if name == "read_file":
+            path = result.get("path", "")
+            size = result.get("size", 0)
+            truncated = result.get("truncated", False)
+            text = f"Read {path} ({size} bytes)"
+            if truncated:
+                text += " [truncated]"
+            return text
+        elif name == "write_file":
+            path = result.get("path", "")
+            status = result.get("status", "")
+            return f"[#00ff66]Written[/] {path} [{status}]"
+        elif name == "list_directory":
+            count = result.get("count", 0)
+            path = result.get("path", "")
+            return f"Listed {path}: {count} entries"
+        elif name == "execute_shell":
+            code = result.get("returncode", -1)
+            stdout = result.get("stdout", "")
+            stderr = result.get("stderr", "")
+            icon = "[#00ff66]✓[/]" if code == 0 else "[#ff6b6b]✗[/]"
+            text = f"{icon} Exit code {code}"
+            if stdout:
+                preview = stdout.strip()[:200]
+                text += f"\n[#888888]{preview}[/]"
+            if stderr:
+                preview = stderr.strip()[:200]
+                text += f"\n[#ff6b6b]{preview}[/]"
+            return text
+        elif name == "search_files":
+            count = result.get("count", 0)
+            files = result.get("files", [])
+            text = f"Found {count} files"
+            if files:
+                text += "\n" + "\n".join(f"  {f}" for f in files[:10])
+            return text
+        return json.dumps(result, indent=2)[:300]
 
 
 class XYZApp(App):
-    """XYZ AI Coding Runtime - Main Application."""
-    
     CSS_PATH = "styles/app.tcss"
-    
-    BINDINGS = [
-        Binding("q", "quit", "Quit", show=True),
-        Binding("ctrl+p", "toggle_palette", "Commands", show=True),
-    ]
-    
     TITLE = "XYZ v0.1.0"
-    
+    BINDINGS = [Binding("q", "quit", "Quit", show=True)]
+
     def on_mount(self) -> None:
-        """Called when app is mounted."""
         self.install_screen(MainScreen(), name="main")
         self.push_screen("main")
 
 
 def main():
-    """Run the XYZ application."""
-    app = XYZApp()
-    app.run()
+    XYZApp().run()
 
 
 if __name__ == "__main__":

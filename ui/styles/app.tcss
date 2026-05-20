@@ -1,259 +1,41 @@
 /* XYZ App - Global Styles */
 
-/* Color variables */
-$background: #000000;
-$surface: #0a0a0a;
-$surface-lighter: #1a1a1a;
-$accent: #ff9500;
-$accent-lighter: #ffb340;
-$text: #ffffff;
-$text-muted: #888888;
-$success: #00ff00;
-$warning: #ffaa00;
-$error: #ff0000;
-
-/* Global settings */
 Screen {
-    background: $background;
-    color: $text;
+    background: #0d0d0d;
+    color: #e0e0e0;
 }
 
-/* Header styling */
-Header {
-    background: $surface;
-    color: $accent;
-    text-style: bold;
-}
-
-/* Footer styling */
-Footer {
-    background: $surface;
-    color: $text-muted;
-}
-
-/* Scrollbar styling */
 ScrollableContainer {
-    scrollbar-color: $accent $surface;
-    scrollbar-background: $surface;
-    scrollbar-color-hover: $accent-lighter $surface;
-    scrollbar-size: 1;
+    scrollbar-color: #c890c8 #0d0d0d;
+    scrollbar-background: #0d0d0d;
+    scrollbar-color-hover: #d4a0d4 #0d0d0d;
 }
 
-/* Input styling */
 Input {
-    border: round $surface-lighter;
-    background: $surface;
-    color: $text;
+    border: none;
+    background: transparent;
+    color: #e0e0e0;
 }
 
 Input:focus {
-    border: round $accent;
+    border: none;
 }
 
-/* Button styling */
-Button {
-    border: round $accent;
-    background: $surface;
-    color: $text;
-}
-
-Button:focus {
-    border: round $accent-lighter;
-    text-style: bold;
-}
-
-Button:hover {
-    background: $surface-lighter;
-}
-
-/* DataTable styling */
 DataTable {
-    border: round $surface-lighter;
-    background: $surface;
+    background: transparent;
 }
 
 DataTable > .datatable--header {
-    background: $surface-lighter;
-    color: $accent;
+    background: #1a1a1a;
+    color: #c890c8;
     text-style: bold;
 }
 
 DataTable > .datatable--cursor {
-    background: $accent;
-    color: $background;
+    background: #c890c8;
+    color: #0d0d0d;
 }
 
 DataTable > .datatable--hover {
-    background: $surface-lighter;
-}
-
-/* Panel borders */
-Panel {
-    border: round $accent;
-    background: $surface;
-}
-
-/* Text styling */
-.text-accent {
-    color: $accent;
-}
-
-.text-success {
-    color: $success;
-}
-
-.text-warning {
-    color: $warning;
-}
-
-.text-error {
-    color: $error;
-}
-
-.text-muted {
-    color: $text-muted;
-}
-
-/* Animation classes */
-.animate-pulse {
-    animation: pulse 2s infinite;
-}
-
-.animate-fade-in {
-    animation: fade-in 0.3s ease-out;
-}
-
-.animate-slide-in {
-    animation: slide-in 0.3s ease-out;
-}
-
-/* Loading spinner */
-.loading-spinner {
-    color: $accent;
-    animation: pulse 1s infinite;
-}
-
-/* Status indicators */
-.status-ready {
-    color: $success;
-}
-
-.status-thinking {
-    color: $warning;
-    animation: pulse 1s infinite;
-}
-
-.status-busy {
-    color: $error;
-}
-
-/* Command palette specific */
-.command-palette {
-    border: round $accent;
-    background: $surface;
-}
-
-.command-palette .command-item {
-    padding: 0 1;
-}
-
-.command-palette .command-item:hover {
-    background: $surface-lighter;
-}
-
-.command-palette .command-item.selected {
-    background: $accent;
-    color: $background;
-}
-
-/* Chat message specific */
-.chat-message {
-    padding: 1 2;
-    margin: 0 0 1 0;
-}
-
-.chat-message.user {
-    border-left: solid $accent;
-}
-
-.chat-message.assistant {
-    border-left: solid $success;
-}
-
-.chat-message.system {
-    border-left: solid $warning;
-}
-
-/* Code block styling */
-.code-block {
-    background: $surface-lighter;
-    border: round $surface-lighter;
-    padding: 1;
-}
-
-.code-block .code-header {
-    color: $accent;
-    text-style: bold;
-    padding-bottom: 1;
-}
-
-.code-block .code-content {
-    color: $text;
-}
-
-/* Welcome message */
-.welcome-message {
-    text-align: center;
-    padding: 2;
-    color: $text-muted;
-}
-
-.welcome-message .title {
-    color: $accent;
-    text-style: bold;
-    font-size: 2;
-}
-
-.welcome-message .subtitle {
-    color: $text-muted;
-    margin-top: 1;
-}
-
-/* Activity indicators */
-.activity-indicator {
-    color: $text-muted;
-    text-style: italic;
-}
-
-.activity-indicator.reading {
-    color: $accent;
-}
-
-.activity-indicator.writing {
-    color: $success;
-}
-
-.activity-indicator.executing {
-    color: $warning;
-}
-
-.activity-indicator.searching {
-    color: $error;
-}
-
-/* Responsive design */
-@media screen and (max-width: 80) {
-    .header-panel {
-        height: auto;
-    }
-    
-    .command-palette {
-        width: 90%;
-    }
-}
-
-@media screen and (min-width: 120) {
-    .command-palette {
-        width: 80;
-    }
+    background: #1a1a1a;
 }

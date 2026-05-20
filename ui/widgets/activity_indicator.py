@@ -9,29 +9,29 @@ class ActivityIndicator(Static):
     
     DEFAULT_CSS = """
     ActivityIndicator {
-        color: $accent;
+        color: #ff9500;
         text-style: bold;
         padding: 0 1;
     }
     
     ActivityIndicator.reading {
-        color: $accent;
+        color: #ff9500;
     }
     
     ActivityIndicator.writing {
-        color: $success;
+        color: #00ff00;
     }
     
     ActivityIndicator.executing {
-        color: $warning;
+        color: #ffaa00;
     }
     
     ActivityIndicator.searching {
-        color: $error;
+        color: #ff0000;
     }
     
     ActivityIndicator.thinking {
-        color: $text-muted;
+        color: #888888;
     }
     """
     

@@ -3,62 +3,58 @@ from textual.widgets import Static, Input, DataTable
 from textual.containers import Vertical, Horizontal
 from textual.binding import Binding
 from textual.reactive import reactive
-from textual.screen import ModalScreen
 import asyncio
 
 
 class CommandPalette(Vertical):
     """Floating command palette inside the terminal."""
-    
+
     DEFAULT_CSS = """
     CommandPalette {
         width: 60;
         height: 20;
-        border: round $accent;
-        background: $surface;
+        background: #0d0d0d;
         padding: 1;
         display: none;
     }
-    
+
     CommandPalette .palette-header {
         height: 3;
         padding: 0 1;
-        border-bottom: solid $accent;
     }
-    
+
     CommandPalette .palette-title {
-        color: $text;
+        color: #c890c8;
         text-style: bold;
     }
-    
+
     CommandPalette .palette-hint {
-        color: $text-muted;
+        color: #888888;
     }
-    
+
     CommandPalette #palette-filter {
         width: 100%;
         border: none;
         background: transparent;
-        color: $text;
+        color: #e0e0e0;
         padding: 0 1;
     }
-    
+
     CommandPalette #palette-filter:focus {
         border: none;
         background: transparent;
     }
-    
+
     CommandPalette #command-table {
         height: 1fr;
         border: none;
         background: transparent;
     }
-    
+
     CommandPalette .palette-footer {
         height: 3;
         padding: 0 1;
-        border-top: solid $surface-lighter;
-        color: $text-muted;
+        color: #888888;
     }
     """
     

@@ -1,0 +1,80 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "xyz"
+version = "0.2.0"
+description = "XYZ - Open Source AI Coding Agent"
+requires-python = ">=3.10"
+authors = [
+    {name = "Kumar Satyam", email = "kumarsatyam3135@gmail.com"},
+]
+license = {text = "MIT"}
+keywords = ["ai", "coding", "agent", "cli", "terminal"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
+    "Topic :: Software Development",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "typer>=0.9.0",
+    "rich>=13.7.0",
+    "textual>=0.47.0",
+    "prompt_toolkit>=3.0.0",
+    "fastapi>=0.104.0",
+    "uvicorn>=0.24.0",
+    "httpx>=0.25.0",
+    "pydantic>=2.5.0",
+    "orjson>=3.9.0",
+    "keyring>=24.3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.1.0",
+    "mypy>=1.7.0",
+    "pre-commit>=3.5.0",
+]
+test = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.23.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/krsatyam36/xyz"
+Repository = "https://github.com/krsatyam36/xyz.git"
+
+[project.scripts]
+xyz = "xyz.main:cli"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.10"
+strict = false
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+source = ["xyz"]
+omit = ["*/tests/*", "*/__pycache__/*"]
