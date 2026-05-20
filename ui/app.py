@@ -152,7 +152,7 @@ class MainScreen(Screen):
                 bar.current_model = selected
                 chat.add_system_message(f"[green]✓ Model switched to: [bold]{selected}[/]")
         
-        self.app.push_screen(ModelPickerModal(models, current, on_select))
+        self.app.push_screen(ModelPickerModal(models, current), on_select)
 
     def _handle_message(self, text: str) -> None:
         chat = self.query_one("#chat-panel", ChatPanel)
