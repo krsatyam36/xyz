@@ -8,6 +8,7 @@ from textual import work
 import asyncio
 import os
 
+from xyz import __version__
 from xyz.config import load_config, get_api_key
 
 
@@ -177,7 +178,7 @@ class XYZApp(App):
         
         # Build header with proper Textual markup
         header_text = (
-            f"[#c890c8 bold]XYZ v0.1.0[/]\n\n"
+            f"[#c890c8 bold]XYZ v{__version__}[/]\n\n"
             f"[#c890c8 bold]Welcome back![/]\n\n"
             f"[#c890c8]"
             f"██████╗ ███████╗██╗   ██╗\n"

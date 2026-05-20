@@ -3,6 +3,8 @@ from textual.widgets import Static
 from textual.containers import Horizontal
 import os
 
+from xyz import __version__
+
 
 class HeaderPanel(Horizontal):
     """Compact header with version, model, and path info."""
@@ -35,5 +37,5 @@ class HeaderPanel(Horizontal):
         home = os.path.expanduser("~")
         display_path = cwd.replace(home, "~", 1) if cwd.startswith(home) else cwd
 
-        yield Static(f"XYZ v0.1.0  —  {display_path}", id="header-left")
+        yield Static(f"XYZ v{__version__}  —  {display_path}", id="header-left")
         yield Static("meta/llama-3.3-70b-instruct", id="header-right")

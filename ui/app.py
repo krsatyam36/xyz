@@ -9,10 +9,13 @@ import json
 import os
 import traceback
 
+from xyz import __version__
 from xyz.ui.panels.header_panel import HeaderPanel
 from xyz.ui.panels.chat_panel import ChatPanel, ChatMessage
 from xyz.ui.panels.input_panel import InputPanel
 from xyz.ui.panels.status_bar import StatusBar
+from xyz.ui.widgets.model_picker import ModelPickerModal
+from xyz.config import discover_models
 from xyz.gateway.providers import NIMProvider
 from xyz.config import load_config, get_api_key, set_api_key, discover_models, save_config, validate_api_key
 from xyz.agent.tools import TOOL_DEFINITIONS, TOOL_REGISTRY, execute_shell
@@ -115,31 +118,41 @@ class MainScreen(Screen):
         chat.add_system_message("Status:\n" + "\n".join(f"  {k}: {v}" for k, v in s.items()))
 
     def _cmd_model(self, cmd):
-        chat = self.query_one("#chat-panel", ChatPanel)
-        bar = self.query_one("#status-bar", StatusBar)
-        parts = cmd.split()
-        if len(parts) < 2:
-            chat.add_system_message("Usage: /model <name>")
-            return
-        name = parts[1]
-        cfg = load_config()
-        cfg.default_model = name
-        save_config(cfg)
-        bar.current_model = name
-        chat.add_system_message(f"Model → [bold]{name}[/]")
+        self._show_model_picker()
 
     def _cmd_models(self, _):
+        self._show_model_picker()
+
+    def _show_model_picker(self):
+        """Show interactive model picker modal."""
         chat = self.query_one("#chat-panel", ChatPanel)
-        models = load_config().discovered_models or []
+        bar = self.query_one("#status-bar", StatusBar)
+        
+        cfg = load_config()
+        current = cfg.default_model
+        
+        models = cfg.discovered_models or []
         if not models and get_api_key():
-            models = discover_models(get_api_key())
+            try:
+                models = discover_models(get_api_key())
+            except Exception:
+                pass
         if not models:
             from xyz.config import DEFAULT_MODELS
             models = list(DEFAULT_MODELS)
-        text = "Models:\n" + "\n".join(f"  ○ {m}" for m in models[:20])
-        if len(models) > 20:
-            text += f"\n  … +{len(models)-20} more"
-        chat.add_system_message(text)
+        
+        if not models:
+            chat.add_system_message("[red]No models available. Run /login first.[/]")
+            return
+        
+        def on_select(selected):
+            if selected:
+                cfg.default_model = selected
+                save_config(cfg)
+                bar.current_model = selected
+                chat.add_system_message(f"[green]✓ Model switched to: [bold]{selected}[/]")
+        
+        self.push_screen(ModelPickerModal(models, current, on_select))
 
     def _handle_message(self, text: str) -> None:
         chat = self.query_one("#chat-panel", ChatPanel)
@@ -399,7 +412,7 @@ class MainScreen(Screen):
 
 class XYZApp(App):
     CSS_PATH = "styles/app.tcss"
-    TITLE = "XYZ v0.1.0"
+    TITLE = f"XYZ v{__version__}"
     BINDINGS = [Binding("q", "quit", "Quit", show=True)]
 
     def on_mount(self) -> None:

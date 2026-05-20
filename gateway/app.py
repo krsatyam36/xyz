@@ -6,6 +6,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from xyz import __version__
 from .providers import NIMProvider, tracker
 from .cache import response_cache
 
@@ -25,7 +26,7 @@ async def lifespan(app: FastAPI):
         await provider.close()
 
 
-app = FastAPI(title="XYZ Gateway", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="XYZ Gateway", version=__version__, lifespan=lifespan)
 
 
 class ChatRequest(BaseModel):
