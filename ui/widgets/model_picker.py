@@ -111,9 +111,11 @@ class ModelPickerModal(Screen):
         self._highlight_selected()
 
     def _highlight_selected(self) -> None:
-        for i, item in enumerate(self.query("ModelPickerItem")):
+        items = list(self.query("ModelPickerItem"))
+        for i, item in enumerate(items):
             if i == self.selected_index:
                 item.add_class("selected")
+                self.query_one("#model-list", ScrollableContainer).scroll_to_widget(item)
             else:
                 item.remove_class("selected")
 
