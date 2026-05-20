@@ -5,8 +5,6 @@ import time
 import socket
 import subprocess
 import json
-import shutil
-import webbrowser
 from pathlib import Path
 from typing import Optional
 from datetime import datetime
@@ -16,12 +14,6 @@ import httpx
 from rich.console import Console
 from rich.rule import Rule
 from rich.table import Table
-from rich.text import Text
-from rich.panel import Panel
-from rich.box import SIMPLE
-from prompt_toolkit import PromptSession
-from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.styles import Style
 
 from xyz.config import (
     ensure_dirs, load_config, save_config, get_api_key,
@@ -31,6 +23,7 @@ from xyz.config import (
     COMMANDS_DIR, AGENTS_DIR,
 )
 from xyz.ui.terminal import TerminalUI
+from xyz.ui.model_picker import show_model_picker
 from xyz.ui.themes import THEMES, list_themes
 from xyz.agent.planner import AgentPlanner
 from xyz.agent.memory import SessionMemory
@@ -299,27 +292,19 @@ def explore(
 
 @app.command()
 def models():
-    """List available models."""
-    config = load_config()
+    """Browse and select available models interactively."""
     api_key = get_api_key()
     if not api_key:
         console.print("[red]Not initialized. Run 'xyz init' first.[/]")
         raise typer.Exit(1)
 
-    with console.status("[cyan]Fetching models...[/]"):
-        discovered = discover_models(api_key)
-
-    table = Table(title="[bold]Available Models[/]", border_style="blue")
-    table.add_column("Model", style="cyan")
-    table.add_column("Active", justify="center")
-
-    for m in discovered[:50]:
-        active = "●" if m == config.default_model else "○"
-        table.add_row(m, f"[green]{active}[/]")
-
-    console.print()
-    console.print(table)
-    console.print()
+    console.print("[dim]Loading models...[/]")
+    selected = show_model_picker(api_key)
+    if selected:
+        config = load_config()
+        config.default_model = selected
+        save_config(config)
+        console.print(f"[green]✓ Switched to model: {selected}[/]")
 
 
 @app.command()
@@ -462,12 +447,8 @@ def _handle_command(cmd: str, ui: TerminalUI, planner, config, gateway_url: str)
         _cmd_init_project(ui)
         return True
 
-    if command == "/model":
+    if command in ("/model", "/models"):
         _interactive_model_selector(ui, config, planner)
-        return True
-
-    if command == "/models":
-        _cmd_list_models(ui, config)
         return True
 
     if command == "/themes":
@@ -636,24 +617,6 @@ def _cmd_init_project(ui):
         ui.print_success("Created AGENTS.md with project context")
     else:
         ui.print_success("AGENTS.md already exists")
-
-
-def _cmd_list_models(ui, config):
-    api_key = get_api_key()
-    if not api_key:
-        ui.print_error("Not initialized. Run 'xyz init' first.")
-        return
-    with console.status("[cyan]Fetching models...[/]"):
-        models = discover_models(api_key)
-    table = Table(title="[bold]Available Models[/]", border_style="blue", box=None, padding=(0, 2))
-    table.add_column("Model", style="cyan")
-    table.add_column("Active", justify="center")
-    for m in models[:50]:
-        active = "●" if m == config.default_model else "○"
-        table.add_row(m, f"[green]{active}[/]")
-    console.print()
-    console.print(table)
-    console.print()
 
 
 def _cmd_themes(ui, parts):
@@ -999,50 +962,19 @@ def _cmd_connect(ui, config):
 
 
 def _interactive_model_selector(ui, config, planner):
-    """Interactive model selector."""
+    """Interactive model selector with keyboard navigation."""
     api_key = get_api_key()
     if not api_key:
         ui.print_error("Not initialized. Run 'xyz init' first.")
         return
 
-    with console.status("[cyan]Fetching models...[/]"):
-        models = discover_models(api_key)
-
-    if not models:
-        ui.print_error("No models available.")
-        return
-
-    current_model = config.default_model
-
-    ui.console.print()
-    ui.console.print(f"[{ui.theme.primary}]Select model[/]")
-    ui.console.print(f"[{ui.theme.muted}]Switch models. Applies to this session.[/]")
-    ui.console.print()
-
-    for i, m in enumerate(models[:20], 1):
-        marker = "✓" if m == current_model else " "
-        ui.console.print(f"  [{ui.theme.secondary}]{i}.[/] [{ui.theme.text}]{m}[/] [{ui.theme.muted}]{marker}[/]")
-
-    ui.console.print()
-    ui.console.print(f"[{ui.theme.muted}]Enter number to select, or 'q' to cancel[/]")
-
-    choice = ui.get_input("> ")
-    if choice.lower() == "q":
-        return
-
-    try:
-        idx = int(choice) - 1
-        if 0 <= idx < len(models):
-            selected = models[idx]
-            config.default_model = selected
-            save_config(config)
-            ui.model_name = selected
-            ui.show_model_info(selected)
-            ui.print_success(f"Switched to: {selected}")
-        else:
-            ui.print_error("Invalid selection.")
-    except ValueError:
-        ui.print_error("Please enter a valid number.")
+    selected = show_model_picker(api_key)
+    if selected:
+        config.default_model = selected
+        save_config(config)
+        ui.model_name = selected
+        ui.show_model_info(selected)
+        ui.print_success(f"Switched to: {selected}")
 
 
 def cli():

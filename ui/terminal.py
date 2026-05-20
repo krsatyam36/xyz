@@ -50,43 +50,39 @@ PIXEL_ART = """
 
 
 COMMANDS_LIST = [
-    ("/add-dir", "Add a new working directory"),
-    ("/advisor", "Configure the Advisor Tool to consult a stronger model for guidance at key moments during a task"),
-    ("/agents", "Manage agent configurations"),
-    ("/background", "Send this session to the background and free the terminal"),
-    ("/branch", "Create a branch of the current conversation at this point"),
-    ("/btw", "Ask a quick side question without interrupting the main conversation"),
-    ("/clear", "Start a new session with empty context; previous session stays on disk (resumable with /resume)"),
-    ("/color", "Set the prompt bar color for this session"),
-    ("/compact", "Free up context by summarizing the conversation so far"),
-    ("/config", "Open config panel"),
-    ("/context", "Visualize current context usage as a colored grid"),
-    ("/copy", "Copy XYZ's last response to clipboard (or /copy N for the Nth-latest)"),
-    ("/diff", "View uncommitted changes and per-turn diffs"),
-    ("/doctor", "Diagnose and verify your XYZ installation and settings"),
-    ("/effort", "Set effort level for model usage"),
-    ("/exit", "Exit the CLI"),
-    ("/export", "Export the current conversation to a file or clipboard"),
-    ("/fast", "Toggle fast mode"),
-    ("/feedback", "Submit feedback about XYZ"),
-    ("/focus", "Toggle focus view (show only your prompt, a tool summary, and the final response)"),
-    ("/goal", "Set a goal - keep working until the condition is met"),
-    ("/help", "Show help and available commands"),
-    ("/hooks", "View hook configurations for tool events"),
-    ("/ide", "Manage IDE integrations and show status"),
-    ("/install-github-app", "Set up XYZ GitHub Actions for a repository"),
-    ("/keybindings", "Open or create your keybindings configuration file"),
-    ("/login", "Sign in with your account"),
-    ("/logout", "Sign out from your account"),
-    ("/model", "Switch to a different model"),
-    ("/models", "List available models"),
-    ("/resume", "Resume a previous session"),
-    ("/sessions", "List saved sessions"),
-    ("/themes", "List or set a theme"),
-    ("/trust", "Toggle trust mode for commands"),
+    ("/model", "Interactive model picker (↑↓ navigate, Enter select)"),
+    ("/models", "Browse and select models interactively"),
+    ("/help", "Show all available commands"),
+    ("/init", "Create AGENTS.md for the project"),
+    ("/clear", "Start a new session"),
     ("/undo", "Undo last file change"),
+    ("/redo", "Redo last undo"),
+    ("/compact", "Summarize and compress context"),
+    ("/export", "Export conversation to markdown"),
+    ("/context", "Show repository context"),
+    ("/diff", "View uncommitted changes"),
+    ("/sessions", "List saved sessions"),
+    ("/resume <id>", "Resume a previous session"),
+    ("/themes", "List or set a theme"),
+    ("/trust [on/off]", "Toggle trust mode"),
+    ("/connect", "Connect an API provider"),
+    ("/login", "Sign in with API key"),
+    ("/logout", "Sign out"),
+    ("/config", "Show configuration paths"),
+    ("/doctor", "Diagnose installation"),
+    ("/effort [level]", "Set effort level"),
+    ("/fast", "Toggle fast mode"),
+    ("/goal <desc>", "Set a session goal"),
+    ("/branch", "Branch conversation"),
+    ("/share", "Share current session"),
+    ("/copy", "Copy last response"),
+    ("/keybindings", "Show keybindings"),
+    ("/agents", "List available agents"),
+    ("/color <name>", "Set prompt color"),
+    ("/add-dir <path>", "Add working directory"),
+    ("/feedback", "Submit feedback"),
+    ("/quit", "Exit XYZ"),
 ]
-
 
 AGENTS_LIST = [
     ("@build", "Default agent with all tools enabled (Tab to switch)"),
@@ -97,18 +93,18 @@ AGENTS_LIST = [
 
 TIPS = [
     "Type your message to start coding",
-    "Use /help to see all commands",
-    "Use /model to switch models",
+    "Use /model to browse and switch models interactively",
+    "Use ↑↓ arrows to navigate the model picker",
     "Use /themes to change appearance",
     "Tab to switch between Build/Plan agents",
-    "Use @ to mention files in your message",
+    "Use @ to reference files in your message",
 ]
 
 WHAT_NEW = [
-    "Added plugin dependency enforcement: `xyz plugin disable` now refuses when another enabled plugin depends on the ...",
-    "Added projected context cost (per-turn and per-invocation token estimates) to the `/plugin` marketplace browse pane ...",
-    "Added `worktree.bgIsolation: \"none\"` setting to let background sessions edit the working copy directly without `Ente...`",
-    "/release-notes for more",
+    "Interactive model picker with keyboard navigation (↑↓ / Enter / Esc)",
+    "Search/filter models by typing in the picker",
+    "Multi-agent system: Build, Plan, and Explore modes",
+    "Tab to switch between Build and Plan agents",
 ]
 
 
@@ -145,58 +141,54 @@ class TerminalUI:
     def show_banner(self):
         display_path, model_short = self._get_header_info()
         
-        left_content = (
-            f"[{self.theme.primary}]XYZ v{__version__}[/]\n\n"
-            f"[{self.theme.primary}]Welcome back![/]\n\n"
-            f"[{self.theme.accent}]{PIXEL_ART}[/]\n\n"
-            f"[{self.theme.muted}]{model_short}[/] [{self.theme.muted}]• API Usage Billing[/]\n"
-            f"[{self.theme.muted}]{display_path}[/]"
+        left = (
+            f"[{self.theme.primary}]╔══ XYZ v{__version__} ══╗[/]\n\n"
+            f"[{self.theme.accent}]{PIXEL_ART}[/]\n"
+            f"[{self.theme.muted}]  Model :[/] [{self.theme.text}]{model_short}[/]\n"
+            f"[{self.theme.muted}]  Path  :[/] [{self.theme.text}]{display_path}[/]"
         )
         
-        right_content = (
-            f"[{self.theme.primary}]Tips for getting started[/]\n"
-            f"[{self.theme.muted}]Run /init to create a XYZ.md file with instructions for XYZ[/]\n\n"
-            f"[{self.theme.primary}]What's new[/]\n"
+        right = (
+            f"[{self.theme.primary}]Getting Started[/]\n"
+            f"[{self.theme.muted}]  • Type a message to start coding[/]\n"
+            f"[{self.theme.muted}]  • Use /help to see all commands[/]\n"
+            f"[{self.theme.muted}]  • Use /model to switch models[/]\n\n"
+            f"[{self.theme.primary}]What's New[/]\n"
         )
         for item in WHAT_NEW:
-            right_content += f"[{self.theme.muted}]{item}[/]\n"
+            right += f"[{self.theme.muted}]  • {item}[/]\n"
             
-        columns = Columns([left_content, right_content], padding=(0, 4))
-        panel = Panel(columns, border_style=self.theme.primary, box=SIMPLE, padding=(1, 2))
+        columns = Columns([left, right], padding=(0, 4))
+        panel = Panel(columns, border_style=self.theme.primary, box=ROUNDED, padding=(1, 2))
         
         self.console.print()
         self.console.print(panel)
-        self.console.print()
-        self.console.print(Rule(style=self.theme.muted))
         self.console.print()
 
     def show_auth_prompt(self) -> str:
         display_path, model_short = self._get_header_info()
         
-        left_content = (
-            f"[{self.theme.primary}]XYZ v{__version__}[/]\n\n"
-            f"[{self.theme.primary}]Welcome to XYZ[/]\n\n"
-            f"[{self.theme.accent}]{PIXEL_ART}[/]\n\n"
-            f"[{self.theme.muted}]{model_short}[/] [{self.theme.muted}]• API Usage Billing[/]\n"
-            f"[{self.theme.muted}]{display_path}[/]"
+        left = (
+            f"[{self.theme.primary}]╔══ XYZ v{__version__} ══╗[/]\n\n"
+            f"[{self.theme.accent}]{PIXEL_ART}[/]\n"
+            f"[{self.theme.muted}]  Model :[/] [{self.theme.text}]{model_short}[/]\n"
+            f"[{self.theme.muted}]  Path  :[/] [{self.theme.text}]{display_path}[/]"
         )
         
-        right_content = (
-            f"[{self.theme.primary}]Get started[/]\n"
-            f"[{self.theme.muted}]Enter your NVIDIA NIM API key to get started.[/]\n"
-            f"[{self.theme.muted}]Get one at: https://build.nvidia.com[/]\n\n"
+        right = (
+            f"[{self.theme.primary}]Welcome to XYZ[/]\n\n"
+            f"[{self.theme.muted}]  Enter your NVIDIA NIM API key to begin.[/]\n"
+            f"[{self.theme.muted}]  Get one at:[/] [{self.theme.secondary}]https://build.nvidia.com[/]\n\n"
             f"[{self.theme.primary}]Tips[/]\n"
         )
         for tip in TIPS:
-            right_content += f"[{self.theme.muted}]• {tip}[/]\n"
+            right += f"[{self.theme.muted}]  • {tip}[/]\n"
             
-        columns = Columns([left_content, right_content], padding=(0, 4))
-        panel = Panel(columns, border_style=self.theme.primary, box=SIMPLE, padding=(1, 2))
+        columns = Columns([left, right], padding=(0, 4))
+        panel = Panel(columns, border_style=self.theme.primary, box=ROUNDED, padding=(1, 2))
         
         self.console.print()
         self.console.print(panel)
-        self.console.print()
-        self.console.print(Rule(style=self.theme.muted))
         self.console.print()
         
         return self.console.input(f"[{self.theme.secondary}]API Key: [/]").strip()
