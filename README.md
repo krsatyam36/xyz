@@ -771,7 +771,9 @@ pytest tests/test_safety.py -v
   - Model information display (Build · model_name)
   - Keyboard shortcut hints (tab agents, ctrl+p commands)
   - Tip message styled with yellow bullet point
-- **Input Panel**: Moved to center of screen, below the tip message
+- **Input Panel**: Integrated into welcome screen, positioned directly below tip message
+  - Input field centered on welcome screen
+  - Auto-hides when chat starts, reappears on `/clear`
 - **Status Bar**: Streamlined to show only essential information (model name, time)
 - **CSS Updates**: Updated color scheme from purple (#c890c8) to neutral gray (#888888) for a cleaner look
 
