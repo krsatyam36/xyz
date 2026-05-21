@@ -766,29 +766,73 @@ pytest tests/test_safety.py -v
 
 **UI Redesign - OpenCode-Inspired Interface**
 
-- **Header Panel**: Replaced compact header with large centered XYZ ASCII logo, matching OpenCode's visual style
-- **Welcome Screen**: Redesigned welcome message area with:
+- **Header Panel**: Fixed ASCII logo to display "XYZ" properly (was showing "VI")
+- **Welcome Screen**: Removed unwanted text, cleaned up display with:
   - Model information display (Build · model_name)
   - Keyboard shortcut hints (tab agents, ctrl+p commands)
   - Tip message styled with yellow bullet point
-- **Input Panel**: Simplified styling with neutral colors
+- **Input Panel**: Moved to center of screen, below the tip message
 - **Status Bar**: Streamlined to show only essential information (model name, time)
 - **CSS Updates**: Updated color scheme from purple (#c890c8) to neutral gray (#888888) for a cleaner look
-- **CI/CD Pipeline**: Added GitHub Actions workflow for automated testing across Python 3.10, 3.11, 3.12
-  - Automated test runs on push and pull requests
-  - Linting with ruff
-  - Package building on main branch
+
+**40+ Slash Commands Implemented:**
+
+All previously non-functional commands now work:
+- `/themes [name]` - List or set a theme (6 themes available)
+- `/trust [on/off]` - Toggle trust mode
+- `/connect` - Connect a provider
+- `/login` / `/logout` - Sign in/out with API key
+- `/sessions` / `/resume <id>` - Session management
+- `/undo` / `/redo` - File change history
+- `/context` / `/compact` - Context management
+- `/export` - Export conversation to markdown
+- `/config` / `/diff` / `/doctor` - System diagnostics
+- `/effort [level]` - Set effort level (auto/low/medium/high/max)
+- `/fast` - Toggle fast mode
+- `/goal <desc>` - Set session goal
+- `/feedback` / `/focus` / `/hooks` / `/ide` - Various features
+- `/keybindings` - Show keybindings
+- `/branch` / `/background` - Session features
+- `/btw <question>` - Ask side question
+- `/copy` / `/advisor` / `/agents` - AI features
+- `/color <name>` - Set prompt color
+- `/share` / `/unshare` - Session sharing
+- `/add-dir <path>` - Add working directory
+- `/install-github-app` - GitHub App setup
+- `/details` - Toggle execution details
+- `/quit` / `/exit` - Exit XYZ
+
+**5 OpenCode Super Features Added:**
+
+1. **preview_diff** - Visual diff preview before applying changes
+   - Shows unified diff of proposed modifications
+   - Helps verify changes before committing
+
+2. **scaffold_project** - Project scaffolding from templates
+   - Supports: python, fastapi, react, nextjs
+   - Creates complete project structure with boilerplate
+
+3. **review_code** - AI-powered code review
+   - Analyzes code for issues, bugs, and improvements
+   - Focus options: general, security, performance, style
+
+4. **run_in_terminal** - Interactive terminal sessions
+   - Maintains state between commands
+   - Session-based command execution
+
+5. **share_session** - Session sharing capabilities
+   - Share conversations with others
+   - Collaborative coding support
 
 **Files Modified:**
-- `ui/panels/header_panel.py` - New ASCII logo header
-- `ui/panels/chat_panel.py` - Updated welcome message
-- `ui/panels/input_panel.py` - Simplified styling
+- `ui/panels/header_panel.py` - Fixed XYZ ASCII logo
+- `ui/panels/chat_panel.py` - Cleaned welcome message
+- `ui/panels/input_panel.py` - Centered input field
 - `ui/panels/status_bar.py` - Streamlined status display
-- `ui/styles/app.tcss` - Updated global styles
 - `ui/styles/main.tcss` - Updated screen layout
-
-**Files Added:**
-- `.github/workflows/ci-cd.yml` - CI/CD pipeline configuration
+- `ui/app.py` - Added 40+ slash commands
+- `agent/tools.py` - Added 5 new tools (15 total)
+- `README.md` - Updated documentation
 
 ---
 
