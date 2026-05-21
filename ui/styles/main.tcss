@@ -13,10 +13,11 @@ MainScreen {
     height: 1fr;
 }
 
-#input-panel {
+#status-bar {
     height: 3;
 }
 
-#status-bar {
+#input-panel {
     height: 3;
+    margin: 1 0;
 }

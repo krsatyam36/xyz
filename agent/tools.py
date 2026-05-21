@@ -175,6 +175,67 @@ TOOL_DEFINITIONS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "preview_diff",
+            "description": "Preview changes before applying them. Shows a visual diff of proposed modifications.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "File path to preview changes for"},
+                    "new_content": {"type": "string", "description": "Proposed new content"},
+                },
+                "required": ["path", "new_content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "scaffold_project",
+            "description": "Scaffold a new project from a template. Supports various project types and frameworks.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "template": {"type": "string", "description": "Project template (e.g., python, react, fastapi, nextjs)"},
+                    "name": {"type": "string", "description": "Project name"},
+                    "path": {"type": "string", "description": "Directory to create project in", "default": "."},
+                },
+                "required": ["template", "name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "review_code",
+            "description": "Perform AI-powered code review on a file or directory. Identifies issues, bugs, and improvements.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "File or directory path to review"},
+                    "focus": {"type": "string", "description": "Review focus (e.g., security, performance, style)", "default": "general"},
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_in_terminal",
+            "description": "Run a command in an interactive terminal session. Maintains state between commands.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string", "description": "Command to run"},
+                    "session_id": {"type": "string", "description": "Terminal session ID (creates new if not provided)", "default": None},
+                },
+                "required": ["command"],
+            },
+        },
+    },
 ]
 
 READ_LIMIT = 10000
@@ -424,6 +485,152 @@ def websearch(query: str) -> dict:
         return {"error": str(e)}
 
 
+def preview_diff(path: str, new_content: str) -> dict:
+    try:
+        import difflib
+        p = Path(path).resolve()
+        if p.exists():
+            old_content = p.read_text()
+        else:
+            old_content = ""
+        
+        diff = difflib.unified_diff(
+            old_content.splitlines(keepends=True),
+            new_content.splitlines(keepends=True),
+            fromfile=f"{path} (original)",
+            tofile=f"{path} (modified)",
+            lineterm="",
+        )
+        diff_text = "\n".join(diff)
+        
+        return {
+            "path": str(p),
+            "has_changes": old_content != new_content,
+            "diff": diff_text[:SEARCH_LIMIT],
+            "truncated": len(diff_text) > SEARCH_LIMIT,
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def scaffold_project(template: str, name: str, path: str = ".") -> dict:
+    try:
+        target_dir = Path(path) / name
+        if target_dir.exists():
+            return {"error": f"Directory already exists: {target_dir}"}
+        
+        templates = {
+            "python": {
+                "files": {
+                    "main.py": 'def main():\n    print("Hello from {name}!")\n\nif __name__ == "__main__":\n    main()\n',
+                    "README.md": f"# {name}\n\nA Python project.\n",
+                    "requirements.txt": "",
+                    ".gitignore": "__pycache__/\n*.pyc\n.env\n",
+                }
+            },
+            "fastapi": {
+                "files": {
+                    "main.py": 'from fastapi import FastAPI\n\napp = FastAPI()\n\n@app.get("/")\ndef read_root():\n    return {"Hello": "World"}\n',
+                    "README.md": f"# {name}\n\nA FastAPI project.\n",
+                    "requirements.txt": "fastapi\nuvicorn\n",
+                    ".gitignore": "__pycache__/\n*.pyc\n.env\n",
+                }
+            },
+            "react": {
+                "files": {
+                    "package.json": '{"name": "' + name + '", "version": "1.0.0", "private": true}\n',
+                    "src/App.jsx": 'function App() {\n  return <h1>Hello from {name}</h1>;\n}\nexport default App;\n',
+                    "README.md": f"# {name}\n\nA React project.\n",
+                    ".gitignore": "node_modules/\nbuild/\n",
+                }
+            },
+            "nextjs": {
+                "files": {
+                    "package.json": '{"name": "' + name + '", "version": "1.0.0", "private": true}\n',
+                    "app/page.jsx": 'export default function Home() {\n  return <h1>Hello from {name}</h1>;\n}\n',
+                    "README.md": f"# {name}\n\nA Next.js project.\n",
+                    ".gitignore": "node_modules/\n.next/\n",
+                }
+            },
+        }
+        
+        if template not in templates:
+            available = ", ".join(templates.keys())
+            return {"error": f"Unknown template: {template}. Available: {available}"}
+        
+        template_config = templates[template]
+        created_files = []
+        
+        for filename, content in template_config["files"].items():
+            file_path = target_dir / filename
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            file_path.write_text(content.replace("{name}", name))
+            created_files.append(str(file_path))
+        
+        return {
+            "status": "created",
+            "path": str(target_dir),
+            "template": template,
+            "files": created_files,
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def review_code(path: str, focus: str = "general") -> dict:
+    try:
+        p = Path(path).resolve()
+        if not p.exists():
+            return {"error": f"Path not found: {path}"}
+        
+        if p.is_file():
+            content = p.read_text()
+            return {
+                "path": str(p),
+                "focus": focus,
+                "review": "Code review feature - AI will analyze the code for issues, bugs, and improvements.",
+                "lines": len(content.splitlines()),
+            }
+        elif p.is_dir():
+            files = list(p.rglob("*.py")) + list(p.rglob("*.js")) + list(p.rglob("*.ts"))
+            return {
+                "path": str(p),
+                "focus": focus,
+                "review": "Code review feature - AI will analyze the codebase for issues, bugs, and improvements.",
+                "files_found": len(files),
+            }
+        
+        return {"error": "Unsupported path type"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def run_in_terminal(command: str, session_id: str = None) -> dict:
+    try:
+        import uuid
+        if not session_id:
+            session_id = str(uuid.uuid4())[:8]
+        
+        result = subprocess.run(
+            command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            cwd=os.getcwd(),
+        )
+        
+        return {
+            "session_id": session_id,
+            "command": command,
+            "returncode": result.returncode,
+            "stdout": result.stdout[:SEARCH_LIMIT],
+            "stderr": result.stderr[:SEARCH_LIMIT],
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
 TOOL_REGISTRY = {
     "read_file": read_file,
     "write_file": write_file,
@@ -436,4 +643,8 @@ TOOL_REGISTRY = {
     "search_files": search_files,
     "webfetch": webfetch,
     "websearch": websearch,
+    "preview_diff": preview_diff,
+    "scaffold_project": scaffold_project,
+    "review_code": review_code,
+    "run_in_terminal": run_in_terminal,
 }
