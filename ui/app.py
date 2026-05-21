@@ -60,7 +60,6 @@ class MainScreen(Screen):
         yield HeaderPanel(id="header-panel")
         yield ChatPanel(id="chat-panel")
         yield StatusBar(id="status-bar")
-        yield InputPanel(id="input-panel")
 
     def on_mount(self) -> None:
         chat = self.query_one("#chat-panel", ChatPanel)
@@ -70,13 +69,12 @@ class MainScreen(Screen):
         bar.current_model = config.default_model
         if not get_api_key():
             chat.add_system_message("Not logged in — run [bold #c890c8]/login[/]")
-        self.query_one("#message-input", Input).focus()
 
     def action_clear_chat(self):
         self.query_one("#chat-panel", ChatPanel).clear_messages()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        if event.input.id != "message-input":
+        if event.input.id not in ["message-input", "welcome-input"]:
             return
         msg = event.value.strip()
         if not msg:
@@ -190,6 +188,17 @@ class MainScreen(Screen):
         
         self.app.push_screen(ModelPickerModal(models, current), on_select)
 
+    def _focus_input(self):
+        """Focus the active input field (welcome or chat input)."""
+        try:
+            chat = self.query_one("#chat-panel", ChatPanel)
+            welcome_input = chat.query_one("#welcome-input", Input)
+            if welcome_input.display:
+                welcome_input.focus()
+                return
+        except Exception:
+            pass
+
     def _handle_message(self, text: str) -> None:
         chat = self.query_one("#chat-panel", ChatPanel)
         if not self._get_provider():
@@ -202,7 +211,10 @@ class MainScreen(Screen):
     def _handle_api_key(self, key: str) -> None:
         chat = self.query_one("#chat-panel", ChatPanel)
         bar = self.query_one("#status-bar", StatusBar)
-        inp = self.query_one("#message-input", Input)
+        try:
+            inp = chat.query_one("#welcome-input", Input)
+        except Exception:
+            return
         self._awaiting_api_key = False
         inp.value = ""
         if not key:
@@ -223,7 +235,7 @@ class MainScreen(Screen):
         chat = self.query_one("#chat-panel", ChatPanel)
         chat.add_system_message("Enter your NVIDIA NIM API key and press Enter")
         self._awaiting_api_key = True
-        self.query_one("#message-input", Input).focus()
+        self._focus_input()
 
     def _cmd_help(self, _):
         chat = self.query_one("#chat-panel", ChatPanel)

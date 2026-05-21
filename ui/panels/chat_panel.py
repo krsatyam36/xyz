@@ -1,6 +1,6 @@
 """Chat panel with message display and streaming."""
-from textual.widgets import Static
-from textual.containers import ScrollableContainer
+from textual.widgets import Static, Input
+from textual.containers import ScrollableContainer, Horizontal
 from textual.reactive import reactive
 import asyncio
 
@@ -63,6 +63,31 @@ class ChatPanel(ScrollableContainer):
         color: #888888;
         content-align: center top;
     }
+
+    ChatPanel #welcome-input-row {
+        width: 60%;
+        height: 3;
+        margin: 1 auto;
+        align: center middle;
+    }
+
+    ChatPanel #welcome-prompt {
+        width: 2;
+        color: #888888;
+        content-align: left middle;
+    }
+
+    ChatPanel #welcome-input {
+        width: 1fr;
+        border: none;
+        background: transparent;
+        color: #e0e0e0;
+    }
+
+    ChatPanel #welcome-input:focus {
+        border: none;
+        background: transparent;
+    }
     """
 
     messages: list = reactive([])
@@ -70,13 +95,21 @@ class ChatPanel(ScrollableContainer):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._welcome = None
+        self._welcome_input = None
 
     def compose(self):
         self._welcome = Static(classes="welcome")
         yield self._welcome
+        with Horizontal(id="welcome-input-row"):
+            yield Static("> ", id="welcome-prompt")
+            yield Input(
+                placeholder="Type your message...",
+                id="welcome-input",
+            )
 
     def on_mount(self) -> None:
         self.messages = []
+        self.query_one("#welcome-input", Input).focus()
 
     def add_welcome_message(self):
         config = load_config()
@@ -89,6 +122,7 @@ class ChatPanel(ScrollableContainer):
         )
 
     def add_user_message(self, content: str):
+        self._hide_welcome_input()
         msg = ChatMessage("user", content)
         self.mount(msg)
         self.messages.append({"role": "user", "content": content})
@@ -113,8 +147,22 @@ class ChatPanel(ScrollableContainer):
         self.scroll_end(animate=False)
         return msg
 
+    def _hide_welcome_input(self):
+        """Hide the welcome input row when chat starts."""
+        try:
+            input_row = self.query_one("#welcome-input-row")
+            input_row.display = False
+        except Exception:
+            pass
+
     def clear_messages(self):
         for child in list(self.query("ChatMessage")):
             child.remove()
         self.messages = []
         self.add_welcome_message()
+        try:
+            input_row = self.query_one("#welcome-input-row")
+            input_row.display = True
+            self.query_one("#welcome-input", Input).focus()
+        except Exception:
+            pass
