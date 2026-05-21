@@ -83,7 +83,7 @@ class ChatPanel(ScrollableContainer):
         model_name = config.default_model.split("/")[-1] if "/" in config.default_model else config.default_model
         
         self._welcome.update(
-            "[#e0e0e0]See the interface of xyz project [bold #ffaa00][Image 1][/bold] I want it to look exactly[/]\n"
+            "[#e0e0e0]See the interface of xyz project [#ffaa00][bold][Image 1][/bold][/][#e0e0e0] I want it to look exactly[/]\n"
             "[#e0e0e0]like this interface[/]\n\n"
             f"[#888888]Build · {model_name}[/]\n\n"
             "[#888888]tab[/] agents  [#888888]ctrl+p[/] commands\n\n\n"
