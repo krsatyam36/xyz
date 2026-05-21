@@ -67,7 +67,7 @@ class ChatPanel(ScrollableContainer):
     ChatPanel #welcome-input-row {
         width: 60%;
         height: 3;
-        margin: 1 auto;
+        margin: 1 20;
         align: center middle;
     }
 
