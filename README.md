@@ -760,6 +760,38 @@ pytest tests/test_safety.py -v
 
 ---
 
+## Changelog
+
+### v0.2.0 (2026-05-21)
+
+**UI Redesign - OpenCode-Inspired Interface**
+
+- **Header Panel**: Replaced compact header with large centered XYZ ASCII logo, matching OpenCode's visual style
+- **Welcome Screen**: Redesigned welcome message area with:
+  - Model information display (Build · model_name)
+  - Keyboard shortcut hints (tab agents, ctrl+p commands)
+  - Tip message styled with yellow bullet point
+- **Input Panel**: Simplified styling with neutral colors
+- **Status Bar**: Streamlined to show only essential information (model name, time)
+- **CSS Updates**: Updated color scheme from purple (#c890c8) to neutral gray (#888888) for a cleaner look
+- **CI/CD Pipeline**: Added GitHub Actions workflow for automated testing across Python 3.10, 3.11, 3.12
+  - Automated test runs on push and pull requests
+  - Linting with ruff
+  - Package building on main branch
+
+**Files Modified:**
+- `ui/panels/header_panel.py` - New ASCII logo header
+- `ui/panels/chat_panel.py` - Updated welcome message
+- `ui/panels/input_panel.py` - Simplified styling
+- `ui/panels/status_bar.py` - Streamlined status display
+- `ui/styles/app.tcss` - Updated global styles
+- `ui/styles/main.tcss` - Updated screen layout
+
+**Files Added:**
+- `.github/workflows/ci-cd.yml` - CI/CD pipeline configuration
+
+---
+
 <div align="center">
 
 **Created with by [Kumar Satyam](mailto:kumarsatyam3135@gmail.com)**

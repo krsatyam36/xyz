@@ -1,41 +1,55 @@
-"""Compact header panel with welcome info."""
+"""Header panel with large centered XYZ ASCII logo."""
 from textual.widgets import Static
-from textual.containers import Horizontal
+from textual.containers import Vertical
 import os
 
 from xyz import __version__
 
 
-class HeaderPanel(Horizontal):
-    """Compact header with version, model, and path info."""
+XYZ_LOGO = """
+██╗   ██╗██╗
+██║   ██║██║
+██║   ██║██║
+╚██╗ ██╔╝██║
+ ╚████╔╝ ██║
+  ╚═══╝  ╚═╝
+"""
+
+
+class HeaderPanel(Vertical):
+    """Header with large centered XYZ logo."""
 
     DEFAULT_CSS = """
     HeaderPanel {
-        height: 3;
-        padding: 0 2;
+        height: auto;
+        padding: 1 2;
         margin: 0 1;
-        background: #0d0d0d;
+        background: transparent;
+        content-align: center top;
     }
 
-    HeaderPanel #header-left {
-        width: 1fr;
-        color: #c890c8;
-        text-style: bold;
-        content-align: left middle;
-    }
-
-    HeaderPanel #header-right {
-        width: auto;
+    HeaderPanel #logo {
         color: #888888;
-        content-align: right middle;
+        text-style: bold;
+        content-align: center middle;
+        width: 100%;
+    }
+
+    HeaderPanel #logo .light {
+        color: #e0e0e0;
     }
     """
 
     def compose(self):
-        """Create compact header."""
-        cwd = os.getcwd()
-        home = os.path.expanduser("~")
-        display_path = cwd.replace(home, "~", 1) if cwd.startswith(home) else cwd
+        """Create header with logo."""
+        logo_text = self._build_logo()
+        yield Static(logo_text, id="logo")
 
-        yield Static(f"XYZ v{__version__}  —  {display_path}", id="header-left")
-        yield Static("meta/llama-3.3-70b-instruct", id="header-right")
+    def _build_logo(self) -> str:
+        """Build the XYZ logo with light/dark blocks like opencode."""
+        logo_lines = XYZ_LOGO.strip().split("\n")
+        result_lines = []
+        for line in logo_lines:
+            styled_line = line.replace("█", "[#888888]█[/]").replace("╗", "[#888888]╗[/]").replace("║", "[#888888]║[/]").replace("╝", "[#888888]╝[/]").replace("╔", "[#888888][/]").replace("╚", "[#888888]╚[/]")
+            result_lines.append(styled_line)
+        return "\n".join(result_lines)

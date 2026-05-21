@@ -12,13 +12,12 @@ class InputPanel(Horizontal):
         height: 3;
         padding: 0 2;
         margin: 0 1;
-        background: #0d0d0d;
+        background: transparent;
     }
 
     InputPanel #input-prompt {
         width: 2;
-        color: #c890c8;
-        text-style: bold;
+        color: #888888;
         content-align: left middle;
     }
 

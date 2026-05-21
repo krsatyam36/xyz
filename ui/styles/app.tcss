@@ -1,4 +1,4 @@
-/* XYZ App - Global Styles */
+/* XYZ App - Global Styles - opencode inspired */
 
 Screen {
     background: #0d0d0d;
@@ -6,9 +6,9 @@ Screen {
 }
 
 ScrollableContainer {
-    scrollbar-color: #c890c8 #0d0d0d;
+    scrollbar-color: #888888 #0d0d0d;
     scrollbar-background: #0d0d0d;
-    scrollbar-color-hover: #d4a0d4 #0d0d0d;
+    scrollbar-color-hover: #e0e0e0 #0d0d0d;
 }
 
 Input {
@@ -27,12 +27,11 @@ DataTable {
 
 DataTable > .datatable--header {
     background: #1a1a1a;
-    color: #c890c8;
-    text-style: bold;
+    color: #e0e0e0;
 }
 
 DataTable > .datatable--cursor {
-    background: #c890c8;
+    background: #888888;
     color: #0d0d0d;
 }
 

@@ -4,6 +4,8 @@ from textual.containers import ScrollableContainer
 from textual.reactive import reactive
 import asyncio
 
+from xyz.config import load_config
+
 
 class ChatMessage(Static):
     """A single chat message — content renders synchronously."""
@@ -59,6 +61,7 @@ class ChatPanel(ScrollableContainer):
     ChatPanel .welcome {
         padding: 2 4;
         color: #888888;
+        content-align: center top;
     }
     """
 
@@ -76,10 +79,15 @@ class ChatPanel(ScrollableContainer):
         self.messages = []
 
     def add_welcome_message(self):
+        config = load_config()
+        model_name = config.default_model.split("/")[-1] if "/" in config.default_model else config.default_model
+        
         self._welcome.update(
-            "[#c890c8 bold]Welcome to XYZ![/]\n\n"
-            "[#888888]Type a message or /help for commands.[/]\n\n"
-            "[#888888]To connect, run:[/] [#c890c8]/login[/]"
+            "[#e0e0e0]See the interface of xyz project [bold #ffaa00][Image 1][/bold] I want it to look exactly[/]\n"
+            "[#e0e0e0]like this interface[/]\n\n"
+            f"[#888888]Build · {model_name}[/]\n\n"
+            "[#888888]tab[/] agents  [#888888]ctrl+p[/] commands\n\n\n"
+            "[#ffaa00]●[/] [#888888]Tip[/] [#888888]Run [/][#e0e0e0]/connect[/][#888888] to add an AI provider and start coding[/]"
         )
 
     def add_user_message(self, content: str):

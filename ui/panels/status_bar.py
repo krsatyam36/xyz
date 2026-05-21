@@ -1,4 +1,4 @@
-"""Status bar with model info, context usage, and system status."""
+"""Status bar with model info and system status."""
 from textual.widgets import Static
 from textual.containers import Horizontal
 from textual.reactive import reactive
@@ -23,16 +23,7 @@ class StatusBar(Horizontal):
     }
 
     StatusBar .status-value {
-        color: #c890c8;
-        text-style: bold;
-    }
-
-    StatusBar .status-value.success {
-        color: #00ff00;
-    }
-
-    StatusBar .status-value.warning {
-        color: #ffaa00;
+        color: #e0e0e0;
     }
 
     StatusBar .status-right {
@@ -64,9 +55,6 @@ class StatusBar(Horizontal):
         """Create status bar."""
         yield Static("●", classes="status-indicator ready", id="status-indicator")
         yield Static(classes="status-item")
-        yield Static(classes="status-item")
-        yield Static(classes="status-item")
-        yield Static(classes="status-item")
         yield Static(classes="status-right", id="status-right")
     
     def on_mount(self) -> None:
@@ -80,26 +68,13 @@ class StatusBar(Horizontal):
         
         # Model
         model_short = self.current_model.split("/")[-1] if "/" in self.current_model else self.current_model
-        items[0].update(f"Model: [bold]{model_short}[/]")
-        
-        # Context
-        used_k = self.context_used / 1000
-        total_k = self.context_total / 1000
-        percentage = (self.context_used / self.context_total) * 100
-        items[1].update(f"Context: [bold]{used_k:.1f}k / {total_k:.0f}k[/] ({percentage:.1f}%)")
-        
-        # Tools
-        items[2].update(f"Tools: [bold]{self.tools_count}[/]")
-        
-        # Trust
-        trust_status = "ON" if self.trust_mode else "OFF"
-        trust_class = "success" if self.trust_mode else "warning"
-        items[3].update(f"Trust: [bold {trust_class}]{trust_status}[/]")
+        if items:
+            items[0].update(f"Model: {model_short}")
         
         # Right side - time
         right = self.query_one("#status-right", Static)
         current_time = datetime.now().strftime("%I:%M %p")
-        right.update(f"● {current_time}")
+        right.update(f"{current_time}")
     
     def _start_clock(self):
         """Start clock update timer."""
