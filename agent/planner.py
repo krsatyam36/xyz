@@ -5,6 +5,7 @@ from typing import AsyncGenerator, Optional
 from xyz.agent.tools import TOOL_DEFINITIONS, TOOL_REGISTRY
 from xyz.agent.parser import parse_tool_calls, extract_text_response
 from xyz.agent.safety import is_hard_blocked, needs_confirmation
+from xyz.agent.permissions import classify_command, AUTO_APPROVE_COMMANDS, ASK_COMMANDS, DENY_COMMANDS
 from xyz.agent.memory import SessionMemory
 from xyz.config import load_config
 
@@ -19,6 +20,9 @@ CAPABILITIES:
 - Search code using regex patterns and glob patterns
 - Fetch web content and search the web for information
 - Full file system and shell access within the working directory
+- Semantic codebase search (AST analysis, function/class/import graph)
+- Git blame analysis for debugging context
+- Architectural memory - remembers codebase conventions across sessions
 
 TOOLS AVAILABLE:
 - read_file(path, offset?, limit?): Read file contents with optional line range
@@ -33,6 +37,11 @@ TOOLS AVAILABLE:
 - webfetch(url): Fetch web content
 - websearch(query): Search the web
 
+PERMISSION TIERS (for shell commands):
+- Auto-approved: ls, pwd, cd, cat, grep, git status, pytest, pip list, echo, curl (no pipe)
+- Ask first: pip install, rm, git push, git commit, docker, chmod, apt-get, wget
+- Denied: sudo, rm -rf /, shutdown, mkfs, dd, fork bombs, curl|bash
+
 GUIDELINES:
 1. Be helpful, direct, and conversational
 2. For code changes, ALWAYS read the file first, then use edit_file for precise changes
@@ -40,8 +49,9 @@ GUIDELINES:
 4. Never execute dangerous commands (the safety system blocks them)
 5. Be concise but thorough in explanations
 6. When done with a task, clearly state what you accomplished
+7. Commit messages should follow conventional commits format: type(scope): description
 
-CURRENT WORKING DIRECTORY: {cwd}
+{memory_context}CURRENT WORKING DIRECTORY: {cwd}
 """
 
 PLAN_AGENT_PROMPT = """You are XYZ in Plan mode. You analyze code and create plans without making changes.
@@ -52,7 +62,7 @@ GUIDELINES:
 3. Do NOT make any changes - only read files and suggest what to change
 4. Focus on architecture, edge cases, and potential issues
 
-CURRENT WORKING DIRECTORY: {cwd}
+{memory_context}CURRENT WORKING DIRECTORY: {cwd}
 """
 
 EXPLORE_AGENT_PROMPT = """You are XYZ in Explore mode. You explore codebases to answer questions.
@@ -63,7 +73,7 @@ GUIDELINES:
 3. Do NOT make any changes
 4. Use grep_files and glob_files extensively
 
-CURRENT WORKING DIRECTORY: {cwd}
+{memory_context}CURRENT WORKING DIRECTORY: {cwd}
 """
 
 
@@ -75,11 +85,17 @@ class AgentPlanner:
 
     def _get_system_prompt(self) -> str:
         cwd = os.getcwd()
+        try:
+            from xyz.agent.memory_store import get_memory_context
+            memory = get_memory_context(max_rules=10)
+            memory_context = memory + "\n\n" if memory else ""
+        except Exception:
+            memory_context = ""
         if self.agent_mode == "plan":
-            return PLAN_AGENT_PROMPT.format(cwd=cwd)
+            return PLAN_AGENT_PROMPT.format(cwd=cwd, memory_context=memory_context)
         elif self.agent_mode == "explore":
-            return EXPLORE_AGENT_PROMPT.format(cwd=cwd)
-        return SYSTEM_PROMPT.format(cwd=cwd)
+            return EXPLORE_AGENT_PROMPT.format(cwd=cwd, memory_context=memory_context)
+        return SYSTEM_PROMPT.format(cwd=cwd, memory_context=memory_context)
 
     def _get_tools(self):
         if self.agent_mode == "explore":
@@ -186,7 +202,11 @@ class AgentPlanner:
                         yield f"\n[BLOCKED] {reason}\n"
                         result = {"error": reason}
                     else:
-                        if needs_confirmation(cmd) and not trust_mode:
+                        perm = classify_command(cmd)
+                        if perm.is_denied():
+                            yield f"\n[BLOCKED] {perm.reason}\n"
+                            result = {"error": perm.reason}
+                        elif perm.needs_ask() and not trust_mode:
                             yield f"\n[CONFIRM] Execute: {cmd}\n[y/n]: "
                             return
                         from xyz.agent.tools import execute_shell

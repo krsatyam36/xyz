@@ -14,6 +14,10 @@ class PlaybookStep(BaseModel):
     instruction: str
     mode: str = "build"
     confirm: bool = False
+    retry_on_fail: bool = False
+    max_loops: int = 1
+    failure_detection: str = ""
+    success_condition: str = ""
 
 
 class Playbook(BaseModel):
@@ -74,6 +78,33 @@ def delete_playbook(name: str) -> bool:
 
 
 BUILTIN_PLAYBOOKS: list[Playbook] = [
+    Playbook(
+        name="create-pr",
+        description="Create a GitHub Pull Request: branch, commit, push, and open PR with summary",
+        author="xyz",
+        version="1.0.0",
+        tags=["git", "github", "pr", "devops"],
+        steps=[
+            PlaybookStep(instruction="Check the current git status and diff to understand what changes have been made and what needs to be committed", mode="explore"),
+            PlaybookStep(instruction="Create a new git branch with a descriptive name based on the changes being made", mode="build"),
+            PlaybookStep(instruction="Stage all changes and commit them with a conventional commit message following the pattern: type(scope): description", mode="build"),
+            PlaybookStep(instruction="Push the branch to origin and use the gh CLI to create a Pull Request with a detailed summary of the changes, including what was changed, why, and any testing notes", mode="build", retry_on_fail=True, max_loops=2, failure_detection="gh:.*(error|failed|not found|auth)"),
+        ],
+    ),
+    Playbook(
+        name="blame-debug",
+        description="Debug an issue using git blame and commit history analysis",
+        author="xyz",
+        version="1.0.0",
+        tags=["debug", "git", "blame"],
+        steps=[
+            PlaybookStep(instruction="First, identify the failing code by reading error messages and relevant source files", mode="explore"),
+            PlaybookStep(instruction="Run git blame on the identified files to see who last modified each line and when", mode="explore"),
+            PlaybookStep(instruction="Read the commit history and messages for the identified commits to understand the context and intent behind the changes", mode="explore"),
+            PlaybookStep(instruction="Based on the blame analysis and commit history, diagnose the root cause of the issue", mode="plan"),
+            PlaybookStep(instruction="Implement the fix and verify it resolves the issue", mode="build"),
+        ],
+    ),
     Playbook(
         name="code-review",
         description="Run a comprehensive code review: check git diff, lint, test, and generate a review report",

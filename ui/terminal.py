@@ -83,6 +83,12 @@ COMMANDS_LIST = [
     ("/feedback", "Submit feedback"),
     ("/playbooks", "List available playbooks"),
     ("/playbook <name>", "Run a playbook"),
+    ("/semantic", "Build semantic codebase index (AST + RAG)"),
+    ("/memory", "Show architectural memory"),
+    ("/remember <rule>", "Remember a codebase rule (//category)"),
+    ("/forget <rule>", "Forget a learned rule"),
+    ("/blame <file>", "Git blame analysis on a file"),
+    ("/pr", "Create a Pull Request via playbook"),
     ("/quit", "Exit XYZ"),
 ]
 

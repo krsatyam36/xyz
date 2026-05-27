@@ -2,7 +2,7 @@
 
 # XYZ — Open Source AI Coding Agent
 
-**v0.3.0** — *An open source AI coding agent for the terminal, inspired by OpenCode and Claude Code*
+**v0.4.0** — *An open source AI coding agent for the terminal, inspired by OpenCode and Claude Code*
 
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat&logo=python&logoColor=white)](https://python.org)
 [![NVIDIA NIM](https://img.shields.io/badge/NVIDIA_NIM-API-76B900?style=flat&logo=nvidia&logoColor=white)](https://build.nvidia.com)
@@ -23,7 +23,9 @@ A powerful terminal-based AI coding agent with tool-calling, multi-agent archite
 
 - [Overview](#overview)
 - [Features](#features)
-- [Architecture](#architecture)
+- [System Design](#system-design)
+  - [High-Level Design (HLD)](#high-level-design-hld)
+  - [Low-Level Design (LLD)](#low-level-design-lld)
 - [Project Structure](#project-structure)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
@@ -115,11 +117,15 @@ mindmap
 
 ---
 
-## Architecture
+## System Design
+
+### High-Level Design (HLD)
+
+The following diagram shows the complete system architecture with all agent subsystems, storage layers, and external integrations:
 
 ```mermaid
 graph TB
-    subgraph "Terminal Client"
+    subgraph "User Interfaces"
         CLI[main.py - Typer CLI]
         TUI[Textual TUI - ui/app.py]
         RTUI[Rich Terminal UI - ui/terminal.py]
@@ -127,15 +133,18 @@ graph TB
 
     subgraph "Agent Layer"
         Planner[AgentPlanner]
-        Memory[SessionMemory]
+        SessionMem[SessionMemory - Undo/Redo]
         Parser[Tool Parser - 4 formats]
         Safety[Safety Checker]
+        Perms[Permission Tiers - HITL]
         Tools[Tool Registry - 15 tools]
         Playbook[Playbook Engine]
+        Codebase[Codebase Analyzer - AST + RAG]
+        MemStore[Architectural Memory - SQLite]
     end
 
     subgraph "Gateway Layer"
-        FastAPI[FastAPI Gateway]
+        FastAPI[FastAPI Gateway - 6 endpoints]
         Provider[NIMProvider - NVIDIA]
         Cache[LRU Cache - 500 entries]
         Tracker[Token Tracker]
@@ -146,21 +155,27 @@ graph TB
         Web[Web / Search]
     end
 
-    subgraph "Storage"
+    subgraph "Local Storage"
         Config[~/.xyz/config.json]
         Sessions[~/.xyz/sessions/*.json]
-        Keyring[OS Keyring]
-        Agents[AGENTS.md]
+        Keyring[OS Keyring - API Key]
+        Agents[AGENTS.md - Project Context]
+        PlaybooksDir[~/.xyz/playbooks/*.yml]
+        MemoryDB[~/.xyz/memory.db - SQLite]
+        ASTCache[~/.xyz/cache/ast/ - AST Cache]
+        RAGIndex[~/.xyz/cache/rag/ - Code Index]
     end
 
     CLI --> Planner
     TUI --> Planner
     RTUI --> Planner
-    Planner --> Memory
+    Planner --> SessionMem
     Planner --> Parser
     Planner --> Safety
+    Safety --> Perms
     Planner --> Tools
     Planner --> FastAPI
+    Planner --> MemStore
     FastAPI --> Provider
     FastAPI --> Cache
     FastAPI --> Tracker
@@ -168,44 +183,423 @@ graph TB
     Tools --> Web
     Playbook --> Planner
     Playbook --> PlaybooksDir
+    Codebase --> Tools
+    Codebase --> ASTCache
+    Codebase --> RAGIndex
+    MemStore --> MemoryDB
+    MemStore --> Planner
     CLI --> Config
-    Memory --> Sessions
+    SessionMem --> Sessions
     CLI --> Keyring
     Planner --> Agents
-    subgraph "Playbook Storage"
-        PlaybooksDir[~/.xyz/playbooks/*.yml]
-    end
+    Perms --> Tools
 ```
+
+**Component Roles:**
+
+| Layer | Component | Responsibility |
+|-------|-----------|---------------|
+| UI | CLI / TUI / Rich | User interaction, command dispatch, rendering |
+| Agent | AgentPlanner | Core agent loop: message → LLM → tool execution → loop |
+| Agent | Permission Tiers | Three-tier shell command classification: auto/ask/deny |
+| Agent | Architectural Memory | SQLite-backed persistent codebase rules |
+| Agent | Codebase Analyzer | Python AST parsing + keyword-based CodeRAG |
+| Agent | Playbook Engine | Multi-step workflow definition and execution |
+| Gateway | FastAPI | Local proxy with SSE streaming, caching, token tracking |
+| Gateway | NIMProvider | Async HTTP client to NVIDIA NIM API |
 
 ### Request Flow
 
 ```mermaid
 sequenceDiagram
     participant U as User
-    participant CLI as CLI / TUI
+    participant UI as CLI / TUI
     participant P as AgentPlanner
+    participant M as Memory Store
+    participant Perm as Permission Tiers
     participant G as Gateway (FastAPI)
     participant NIM as NVIDIA NIM API
     participant T as Tools
 
-    U->>CLI: Type message or command
-    CLI->>P: process(input, model)
+    U->>UI: Type message or command
+    
+    alt Slash Command
+        UI->>P: Handle slash command
+        P->>M: /remember, /memory, /forget
+        P->>T: /semantic (AST + RAG), /blame
+        P->>Playbook: /playbook, /pr
+    else Chat Message
+        UI->>P: process(input, model)
+        P->>M: Inject architectural memory into system prompt
+        P->>G: POST /v1/chat (streaming + tools)
+        G->>NIM: Forward with tool definitions
+        NIM-->>G: Stream tokens + tool calls
+        G-->>P: SSE events
 
-    P->>G: POST /v1/chat (streaming)
-    G->>NIM: Forward with tools
-    NIM-->>G: Stream tokens + tool calls
-    G-->>P: SSE events
-
-    alt Tool Call
-        P->>T: Execute tool
-        T-->>P: Result
-        P->>G: Feed result back
-        G->>NIM: Continue conversation
-    else Text Response
-        P-->>CLI: Display response
+        alt Tool Call
+            P->>T: Execute tool
+            alt execute_shell
+                T->>Perm: classify_command()
+                alt Auto-approve
+                    Perm-->>T: Execute directly
+                else Ask
+                    Perm-->>UI: [CONFIRM] y/n?
+                    UI-->>T: User approves
+                else Denied
+                    Perm-->>UI: [BLOCKED] with reason
+                end
+            end
+            T-->>P: Result
+            P->>SessionMem: Track file writes for undo/redo
+            P->>G: Feed result back to model
+            G->>NIM: Continue conversation loop
+        else Text Response
+            P-->>UI: Stream tokens to user
+        end
     end
+    
+    UI-->>U: Show output
+```
 
-    CLI-->>U: Show output
+### Low-Level Design (LLD)
+
+#### 1. AgentPlanner Class Diagram
+
+```mermaid
+classDiagram
+    class AgentPlanner {
+        +str gateway_url
+        +SessionMemory session
+        +str agent_mode
+        +_get_system_prompt() str
+        +_get_tools() List[dict]
+        +process(input, model, trust_mode) AsyncGenerator
+    }
+
+    class SessionMemory {
+        +str id
+        +str created
+        +List[dict] messages
+        +Dict[str, List[str]] file_history
+        +Dict[str, List[str]] redo_stack
+        +List[str] context_files
+        +add_message(role, content)
+        +get_messages() List[dict]
+        +track_file_write(path, old_content)
+        +undo_last_write(path) str
+        +redo_last_write(path) str
+        +save()
+        +load(session_id) SessionMemory
+    }
+
+    class ToolParser {
+        +parse_tool_calls(response) List[dict]
+        +extract_text_response(response) str
+    }
+
+    class SafetyChecker {
+        +is_hard_blocked(command) Tuple[bool, str]
+        +is_safe_command(command) bool
+        +needs_confirmation(command) bool
+    }
+
+    AgentPlanner --> SessionMemory
+    AgentPlanner --> ToolParser
+    AgentPlanner --> SafetyChecker
+    AgentPlanner --> PermissionTiers
+    AgentPlanner --> MemoryStore
+```
+
+#### 2. Permission Tiers (HITL)
+
+```mermaid
+flowchart TD
+    Cmd[Shell Command] --> Classify{classify_command()}
+    Classify --> Match{Match Pattern?}
+    
+    Match -->|Deny Regex| Deny[TIER: DENY]
+    Match -->|Ask Prefix| Ask[TIER: ASK]
+    Match -->|Auto Prefix| Auto[TIER: AUTO-APPROVE]
+    Match -->|No Match| AskDefault[TIER: ASK - Unknown]
+    
+    Deny --> |Trust Mode Off| Block[BLOCKED with reason]
+    Deny --> |Trust Mode On| Execute
+    
+    Ask --> |Trust Mode Off| Confirm[Ask user: y/n?]
+    Ask --> |Trust Mode On| Execute
+    
+    Auto --> Execute[Execute command]
+    
+    Confirm --> |Yes| Execute
+    Confirm --> |No| Block
+    
+    subgraph "Auto-Approved Commands"
+        A1[ls, pwd, cd, cat, grep]
+        A2[git status, git log, git diff]
+        A3[pytest, ruff, mypy]
+        A4[echo, date, which, find]
+    end
+    
+    subgraph "Ask-First Commands"
+        Q1[pip install, npm install]
+        Q2[git push, git commit]
+        Q3[rm, docker, chmod]
+        Q4[curl, wget, apt-get]
+    end
+    
+    subgraph "Denied Commands"
+        D1[sudo, rm -rf /]
+        D2[shutdown, reboot, mkfs]
+        D3[curl|bash, wget|sh]
+        D4[fork bombs, dd if=]
+    end
+```
+
+```mermaid
+classDiagram
+    class PermissionTiers {
+        +List[str] AUTO_APPROVE_COMMANDS
+        +List[str] ASK_COMMANDS
+        +List[str] DENY_REGEX_PATTERNS
+        +classify_command(command) PermissionResult
+    }
+
+    class PermissionResult {
+        +str tier
+        +str reason
+        +str command
+        +allow_auto() bool
+        +needs_ask() bool
+        +is_denied() bool
+    }
+
+    PermissionTiers --> PermissionResult
+```
+
+#### 3. Architectural Memory (SQLite)
+
+```mermaid
+classDiagram
+    class MemoryStore {
+        +remember_rule(rule, category, source) dict
+        +forget_rule(rule) dict
+        +list_rules(category) List[dict]
+        +get_memory_context(max_rules) str
+        +set_preference(key, value) dict
+        +get_preference(key) str
+        +export_memory_to_md() str
+    }
+
+    class SQLiteDB {
+        +rules table
+        +preferences table
+        +insert_rule()
+        +update_rule()
+        +query_rules()
+    }
+
+    class AgentPlanner {
+        +_get_system_prompt() str
+    }
+
+    MemoryStore --> SQLiteDB
+    AgentPlanner --> MemoryStore : inject context
+    
+    note for AgentPlanner "Memory injected into\nsystem prompt on\nevery process() call"
+```
+
+**Sequence Diagram: Architectural Memory Flow**
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant UI as CLI
+    participant Store as MemoryStore
+    participant DB as SQLite (~/.xyz/memory.db)
+    participant Planner as AgentPlanner
+    participant LLM as AI Model
+
+    U->>UI: /remember Use Pydantic v2 //style
+    UI->>Store: remember_rule(rule, "style", "user")
+    Store->>DB: INSERT OR UPDATE rules
+    DB-->>Store: success
+    Store-->>UI: remembered/reinforced
+    UI-->>U: ✓ remembered
+
+    U->>UI: Write a Pydantic validator
+    UI->>Planner: process(input, model)
+    Planner->>Store: get_memory_context(10)
+    Store->>DB: SELECT * FROM rules
+    DB-->>Store: [rules...]
+    Store-->>Planner: Formatted: "[Architectural Memory]..."
+    Planner->>LLM: System Prompt + Memory Context + User Message
+    LLM-->>Planner: Uses Pydantic v2 conventions
+
+    U->>UI: /memory
+    UI->>Store: list_rules()
+    Store->>DB: SELECT * FROM rules
+    DB-->>Store: [all rules]
+    Store-->>UI: Display rules table
+    UI-->>U: Shows all learned rules
+
+    U->>UI: /forget Use Pydantic v2
+    UI->>Store: forget_rule("Use Pydantic v2")
+    Store->>DB: DELETE FROM rules
+    DB-->>Store: deleted
+    Store-->>UI: forgotten
+    UI-->>U: ✓ forgotten
+```
+
+#### 4. Codebase Analyzer (AST + CodeRAG)
+
+```mermaid
+classDiagram
+    class CodebaseAnalyzer {
+        +parse_python_ast(file_path) dict
+        +analyze_codebase(path) dict
+        +CodeRAG
+    }
+
+    class ASTResult {
+        +str path
+        +List[Import] imports
+        +List[Function] functions
+        +List[Class] classes
+        +int total_lines
+    }
+
+    class CodeRAG {
+        +build_index(path) dict
+        +search(query, top_k) List[dict]
+        +get_relevant_context(query, top_k) str
+    }
+
+    class SearchIndex {
+        +Dict functions
+        +Dict classes
+        +Dict files
+        +Dict keywords
+    }
+
+    CodebaseAnalyzer --> ASTResult
+    CodeRAG --> SearchIndex
+    CodeRAG --> CodebaseAnalyzer : feeds from
+```
+
+**Sequence Diagram: Semantic Search Flow**
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant UI as CLI
+    participant RAG as CodeRAG
+    participant FS as File System
+    participant AST as AST Parser
+
+    U->>UI: /semantic
+    UI->>RAG: build_index(".")
+    RAG->>FS: rglob("*.py")
+    FS-->>RAG: [file paths]
+    
+    loop Each Python File
+        RAG->>AST: parse_python_ast(file)
+        AST->>FS: read file
+        FS-->>AST: source code
+        AST->>AST: ast.parse() → functions, classes, imports
+        AST-->>RAG: structured summary
+        RAG->>RAG: index keywords from names
+    end
+    
+    RAG-->>UI: Index stats
+    UI-->>U: 42 functions, 15 classes indexed
+
+    U->>UI: Look for authentication code
+    UI->>RAG: search("authentication auth login")
+    RAG->>RAG: keyword matching
+    RAG-->>UI: [auth.py: authenticate(), login(), AuthManager]
+    UI-->>U: Shows relevant files
+```
+
+#### 5. Playbook System with Self-Correction
+
+```mermaid
+classDiagram
+    class Playbook {
+        +str name
+        +str description
+        +str author
+        +str version
+        +List[PlaybookStep] steps
+        +List[str] tags
+    }
+
+    class PlaybookStep {
+        +str instruction
+        +str mode
+        +bool confirm
+        +bool retry_on_fail
+        +int max_loops
+        +str failure_detection
+        +str success_condition
+    }
+
+    class PlaybookEngine {
+        +load(name) Playbook
+        +save(playbook) Path
+        +list() List[dict]
+        +delete(name) bool
+        +init_builtins() int
+        +BUILTIN_PLAYBOOKS
+    }
+
+    class AgentPlanner {
+        +process() AsyncGenerator
+    }
+
+    Playbook "1" --> "*" PlaybookStep
+    PlaybookEngine --> Playbook
+    PlaybookStep --> AgentPlanner
+```
+
+**Self-Correction Execution Flow:**
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant CLI as CLI
+    participant PB as Playbook
+    participant P as AgentPlanner
+    participant G as Gateway
+
+    U->>CLI: xyz playbook run add-tests
+    CLI->>PB: steps=[...]
+    
+    loop Each Step
+        CLI->>U: Step i/N
+        
+        loop retry_on_fail: max_loops attempts
+            CLI->>P: AgentPlanner(mode=step.mode)
+            P->>G: process(instruction)
+            G-->>P: Stream results
+            
+            alt Attempt succeeded
+                P-->>CLI: Output
+                CLI-->>U: Display
+                Note over CLI: break - step passed
+            else Attempt failed
+                P-->>CLI: Error
+                alt More attempts left
+                    CLI->>U: Self-correcting...
+                    Note over CLI: Auto-generate debug prompt
+                else No attempts left
+                    CLI->>U: Step failed permanently
+                    Note over CLI: break - playbook aborted
+                end
+            end
+        end
+    end
+    
+    CLI->>U: Playbook completed!
 ```
 
 ---
@@ -221,10 +615,13 @@ xyz/
 ├── agent/
     │   ├── planner.py       # Agent loop with multi-agent support
     │   ├── memory.py        # Session memory with undo/redo
+    │   ├── memory_store.py  # Architectural memory (SQLite)
     │   ├── parser.py        # Multi-format tool call parser (4 formats)
     │   ├── safety.py        # Command safety checker (layered)
+    │   ├── permissions.py   # HITL permission tiers
     │   ├── tools.py         # 15 tool implementations & registry
-    │   └── playbook.py      # Playbook workflow engine
+    │   ├── playbook.py      # Playbook workflow engine
+    │   └── codebase.py      # AST parsing + CodeRAG
 ├── gateway/
 │   ├── app.py           # FastAPI gateway server (6 endpoints)
 │   ├── providers.py     # NVIDIA NIM API provider
@@ -238,11 +635,14 @@ xyz/
 ├── utils/
 │   └── files.py         # Git context & file tree utilities
 ├── tests/
-│   ├── test_tools.py    # Tool function tests
-│   ├── test_safety.py   # Safety system tests
-│   ├── test_memory.py   # Session memory tests
-│   ├── test_config.py   # Configuration tests
-│   └── test_playbook.py # Playbook system tests
+│   ├── test_tools.py        # Tool function tests
+│   ├── test_safety.py       # Safety system tests
+│   ├── test_memory.py       # Session memory tests
+│   ├── test_config.py       # Configuration tests
+│   ├── test_playbook.py     # Playbook system tests
+│   ├── test_permissions.py  # HITL permission tests
+│   ├── test_codebase.py     # AST + RAG tests
+│   └── test_memory_store.py # Architectural memory tests
 └── .github/workflows/
     └── ci.yml           # GitHub Actions CI
 ```
@@ -979,6 +1379,59 @@ pytest tests/test_safety.py -v
 ---
 
 ## Changelog
+
+### v0.4.0 (2026-05-27)
+
+**5 Major Feature Releases: Autonomous Loops, Deep Code Context, HITL Permissions, Git DevOps, Architectural Memory**
+
+#### 1. Autonomous Test-and-Fix Loop
+- `PlaybookStep` now supports `retry_on_fail`, `max_loops`, `failure_detection`, `success_condition`
+- Playbook runner catches failures and auto-retries with a debug instruction
+- CLI and in-chat runners both support self-correction with visual attempt tracking
+
+#### 2. Deep Codebase Context (AST Parsing + Local RAG)
+- **`agent/codebase.py`** — Python AST parser extracting function signatures, class definitions, imports, and decorators
+- **CodeRAG** — Lightweight keyword-based local search index for semantic code lookup
+- `/semantic` slash command — Build and search the codebase index
+- AST analysis shows function count, class count, import graph per file
+
+#### 3. Human-In-The-Loop (HITL) Permission Tiers
+- **`agent/permissions.py`** — Three-tier system: auto-approve, ask-first, deny
+- Integrated into `AgentPlanner.process()` for all shell commands
+- Auto-approved: ls, git status, pytest, echo, etc.
+- Ask-first: pip install, git push, docker, chmod, curl, wget
+- Denied: sudo, rm -rf /, shutdown, curl|bash, mkfs, fork bombs
+
+#### 4. Git & DevOps Mastery
+- **create-pr** playbook — Auto-branch, commit, push, and open PR via `gh`
+- **blame-debug** playbook — Git blame + commit history analysis for debugging
+- `/blame <file>` — Quick git blame analysis
+- `/pr` — Launch the create-pr playbook
+
+#### 5. Architectural Memory
+- **`agent/memory_store.py`** — SQLite-backed persistent rule database
+- Rules stored with categories, weight (auto-reinforced on duplicates), and source tracking
+- `/remember <rule> //category` — Teach the agent codebase conventions
+- `/forget <rule>` — Remove a learned rule
+- `/memory` — Display all learned rules
+- Memory auto-injected into the system prompt on every request via `get_memory_context()`
+- `export_memory_to_md()` syncs to `~/.xyz/memory.md`
+
+**Files Added:**
+- `agent/permissions.py` — HITL permission tiers (22 tests)
+- `agent/codebase.py` — AST parsing + CodeRAG (8 tests)
+- `agent/memory_store.py` — SQLite architectural memory (7 tests)
+- `tests/test_permissions.py` — 18 permission classification tests
+- `tests/test_codebase.py` — 7 AST and RAG tests
+- `tests/test_memory_store.py` — 7 memory persistence tests
+
+**Files Modified:**
+- `agent/playbook.py` — Added retry_on_fail, max_loops, failure_detection, success_condition to PlaybookStep; added create-pr and blame-debug playbooks
+- `agent/planner.py` — Memory injection into system prompts; permission-tier integration for shell execution
+- `main.py` — Added 7 new slash commands; self-correction loops in both CLI and in-chat playbook runners; new imports
+- `ui/terminal.py` — Added 6 new commands to COMMANDS_LIST
+- `__init__.py` — v0.3.0 → v0.4.0
+- `tests/test_playbook.py` — Added retry/max_loops field tests
 
 ### v0.3.0 (2026-05-27)
 

@@ -28,10 +28,16 @@ from xyz.ui.themes import THEMES, list_themes
 from xyz.agent.planner import AgentPlanner
 from xyz.agent.memory import SessionMemory
 from xyz.agent.tools import read_file, write_file, edit_file, execute_shell, grep_files, glob_files
-from xyz.agent.safety import is_hard_blocked
+from xyz.agent.safety import is_hard_blocked, is_safe_command
+from xyz.agent.permissions import classify_command, PermissionResult
 from xyz.agent.playbook import (
     Playbook, PlaybookStep, load_playbook, save_playbook,
     list_playbooks, delete_playbook, init_builtin_playbooks,
+)
+from xyz.agent.codebase import analyze_codebase, CodeRAG
+from xyz.agent.memory_store import (
+    remember_rule, forget_rule, list_rules,
+    get_memory_context, set_preference, get_preference,
 )
 from xyz.utils.files import get_context_summary
 
@@ -563,36 +569,52 @@ def playbook_run(
         for i, step in enumerate(pb.steps, 1):
             ui.console.print(f"[bold cyan]Step {i}/{len(pb.steps)}:[/] {step.instruction[:80]}")
             ui.console.print(f"[dim]Mode: {step.mode}[/]")
+            if step.retry_on_fail:
+                ui.console.print(f"[dim]Self-correction: up to {step.max_loops} attempts[/]")
             ui.console.print()
 
-            planner = AgentPlanner(gateway_url, agent_mode=step.mode)
-            use_model = model or config.default_model
+            max_attempts = step.max_loops if step.retry_on_fail else 1
+            step_success = False
 
-            try:
-                async def run_step(planner, step, use_model, config, ui):
-                    ui.current_status = "thinking"
-                    ui.update_status_bar()
-                    async for output in planner.process(
-                        step.instruction,
-                        use_model,
-                        trust_mode=config.trust_mode,
-                        on_status=lambda s: setattr(ui, "current_status", s) or ui.update_status_bar(),
-                        on_token=lambda t: ui.stream_text(t),
-                    ):
-                        if output.startswith("\n["):
-                            pass
-                        elif output.startswith("[CONFIRM]"):
-                            ui.console.print(output, end="", markup=False)
-                        else:
-                            ui.stream_text(output)
-                    ui.console.print()
-                    ui.current_status = "ready"
-                    ui.update_status_bar()
+            for attempt in range(1, max_attempts + 1):
+                if attempt > 1:
+                    ui.console.print(f"[yellow]Attempt {attempt}/{max_attempts}...[/]")
+                    debug_instruction = f"The previous attempt had issues. Please fix the problems and try again. Original instruction: {step.instruction}"
 
-                loop.run_until_complete(run_step(planner, step, use_model, config, ui))
-            except Exception as e:
-                ui.print_error(f"Step {i} failed: {str(e)}")
-                break
+                planner = AgentPlanner(gateway_url, agent_mode=step.mode)
+                use_model = model or config.default_model
+
+                try:
+                    async def run_step(planner, step, use_model, config, ui, attempt, max_attempts):
+                        ui.current_status = "thinking"
+                        ui.update_status_bar()
+                        instruction = step.instruction if attempt == 1 else f"The previous attempt failed. Fix the issues and complete: {step.instruction}"
+                        async for output in planner.process(
+                            instruction,
+                            use_model,
+                            trust_mode=config.trust_mode,
+                            on_status=lambda s: setattr(ui, "current_status", s) or ui.update_status_bar(),
+                            on_token=lambda t: ui.stream_text(t),
+                        ):
+                            if output.startswith("\n["):
+                                pass
+                            elif output.startswith("[CONFIRM]"):
+                                ui.console.print(output, end="", markup=False)
+                            else:
+                                ui.stream_text(output)
+                        ui.console.print()
+                        ui.current_status = "ready"
+                        ui.update_status_bar()
+
+                    loop.run_until_complete(run_step(planner, step, use_model, config, ui, attempt, max_attempts))
+                    step_success = True
+                    break
+                except Exception as e:
+                    ui.print_error(f"Attempt {attempt} failed: {str(e)}")
+                    if attempt < max_attempts:
+                        ui.console.print("[yellow]Self-correcting...[/]")
+                    else:
+                        ui.print_error(f"Step {i} failed after {max_attempts} attempts")
 
             ui.console.print()
             ui.console.print(Rule(style=ui.theme.muted))
@@ -774,6 +796,30 @@ def _handle_command(cmd: str, ui: TerminalUI, planner, config, gateway_url: str)
 
     if command == "/playbooks":
         _cmd_playbook_list(ui)
+        return True
+
+    if command == "/semantic":
+        _cmd_semantic(ui)
+        return True
+
+    if command == "/memory":
+        _cmd_memory(ui)
+        return True
+
+    if command == "/remember":
+        _cmd_remember(ui, parts)
+        return True
+
+    if command == "/forget":
+        _cmd_forget(ui, parts)
+        return True
+
+    if command == "/blame":
+        _cmd_blame(ui, parts)
+        return True
+
+    if command == "/pr":
+        _cmd_create_pr(ui)
         return True
 
     if command == "/details":
@@ -1181,34 +1227,138 @@ def _cmd_playbook_run(ui, parts):
     ui.console.print()
     for i, step in enumerate(pb.steps, 1):
         ui.console.print(f"[bold cyan]Step {i}/{len(pb.steps)}:[/] {step.instruction[:80]}")
+        if step.retry_on_fail:
+            ui.console.print(f"[dim]Self-correction: up to {step.max_loops} attempts[/]")
         ui.console.print()
-        planner = AgentPlanner(gateway_url, agent_mode=step.mode)
-        try:
-            async def run_step(planner, step, config, ui):
-                ui.current_status = "thinking"
-                ui.update_status_bar()
-                async for output in planner.process(
-                    step.instruction, config.default_model,
-                    trust_mode=config.trust_mode,
-                    on_status=lambda s: setattr(ui, "current_status", s) or ui.update_status_bar(),
-                    on_token=lambda t: ui.stream_text(t),
-                ):
-                    if output.startswith("[CONFIRM]"):
-                        ui.console.print(output, end="", markup=False)
-                    else:
-                        ui.stream_text(output)
-                ui.console.print()
-                ui.current_status = "ready"
-                ui.update_status_bar()
-            loop.run_until_complete(run_step(planner, step, config, ui))
-        except Exception as e:
-            ui.print_error(f"Step {i} failed: {str(e)}")
-            break
+
+        max_attempts = step.max_loops if step.retry_on_fail else 1
+        step_success = False
+
+        for attempt in range(1, max_attempts + 1):
+            if attempt > 1:
+                ui.console.print(f"[yellow]Attempt {attempt}/{max_attempts}...[/]")
+
+            planner = AgentPlanner(gateway_url, agent_mode=step.mode)
+            try:
+                async def run_step(planner, step, config, ui, attempt):
+                    ui.current_status = "thinking"
+                    ui.update_status_bar()
+                    instruction = step.instruction if attempt == 1 else f"The previous attempt failed. Fix the issues and complete: {step.instruction}"
+                    async for output in planner.process(
+                        instruction, config.default_model,
+                        trust_mode=config.trust_mode,
+                        on_status=lambda s: setattr(ui, "current_status", s) or ui.update_status_bar(),
+                        on_token=lambda t: ui.stream_text(t),
+                    ):
+                        if output.startswith("[CONFIRM]"):
+                            ui.console.print(output, end="", markup=False)
+                        else:
+                            ui.stream_text(output)
+                    ui.console.print()
+                    ui.current_status = "ready"
+                    ui.update_status_bar()
+                loop.run_until_complete(run_step(planner, step, config, ui, attempt))
+                step_success = True
+                break
+            except Exception as e:
+                ui.print_error(f"Attempt {attempt} failed: {str(e)}")
+                if attempt < max_attempts:
+                    ui.console.print("[yellow]Self-correcting...[/]")
+                else:
+                    ui.print_error(f"Step {i} failed after {max_attempts} attempts")
+
         ui.console.print()
         ui.console.print(Rule(style=ui.theme.muted))
         ui.console.print()
     ui.print_success(f"Playbook '{pb.name}' completed!")
     loop.close()
+
+
+def _cmd_semantic(ui):
+    """Build and display semantic codebase index."""
+    ui.console.print(f"[{ui.theme.primary}]Building codebase index...[/]")
+    code_rag = CodeRAG()
+    index = code_rag.build_index()
+    if "error" in index:
+        ui.print_error(f"Index failed: {index['error']}")
+        return
+    stats = index.get("stats", {})
+    ui.print_success(f"Index built: {stats.get('functions', 0)} functions, {stats.get('classes', 0)} classes, {stats.get('files', 0)} files")
+    # Also show AST analysis summary
+    analysis = analyze_codebase()
+    if "error" not in analysis:
+        ui.console.print(f"[{ui.theme.muted}]AST Analysis: {analysis.get('total_files', 0)} .py files, {analysis.get('function_count', 0)} functions, {analysis.get('class_count', 0)} classes, {analysis.get('import_count', 0)} imports[/]")
+
+
+def _cmd_memory(ui):
+    """Show architectural memory."""
+    ctx = get_memory_context()
+    if ctx:
+        ui.console.print()
+        ui.console.print(f"[{ui.theme.primary}]Architectural Memory[/]")
+        ui.console.print()
+        for line in ctx.split("\n"):
+            ui.console.print(f"  {line}")
+        ui.console.print()
+    else:
+        ui.print_warning("No rules learned yet. Use /remember <rule> to teach the agent.")
+    ui.console.print(f"[{ui.theme.muted}]Stored in: ~/.xyz/memory.db[/]")
+
+
+def _cmd_remember(ui, parts):
+    """Remember a rule about the codebase."""
+    if len(parts) < 2:
+        ui.print_error("Usage: /remember <rule>")
+        return
+    rule = " ".join(parts[1:])
+    if "//" in rule:
+        rule_text, category = rule.rsplit("//", 1)
+        result = remember_rule(rule_text.strip(), category=category.strip(), source="user")
+    else:
+        result = remember_rule(rule, source="user")
+    ui.print_success(f"✓ {result['status']}: {result.get('rule', rule)[:60]}")
+
+
+def _cmd_forget(ui, parts):
+    """Forget a rule."""
+    if len(parts) < 2:
+        ui.print_error("Usage: /forget <rule>")
+        return
+    rule = " ".join(parts[1:])
+    result = forget_rule(rule)
+    if result["status"] == "forgotten":
+        ui.print_success(f"Forgot: {rule[:60]}")
+    else:
+        ui.print_warning(f"Rule not found: {rule[:60]}")
+
+
+def _cmd_blame(ui, parts):
+    """Run git blame on a file."""
+    if len(parts) < 2:
+        ui.print_error("Usage: /blame <file>")
+        return
+    file_path = parts[1]
+    result = execute_shell(f"git blame {file_path} 2>/dev/null || echo 'Not a git repository or file not found'")
+    output = result.get("stdout", "") + result.get("stderr", "")
+    if output.strip():
+        ui.console.print()
+        ui.console.print(f"[{ui.theme.primary}]git blame {file_path}[/]")
+        ui.console.print(f"[{ui.theme.muted}]{output[:2000]}[/]")
+        ui.console.print()
+
+
+def _cmd_create_pr(ui):
+    """Create a PR using the create-pr playbook."""
+    pb = load_playbook("create-pr")
+    if not pb:
+        init_builtin_playbooks()
+        pb = load_playbook("create-pr")
+    if pb:
+        ui.print_success("Running create-pr playbook...")
+        parts = ["/playbook", "create-pr"]
+        _cmd_playbook_run(ui, parts)
+    else:
+        ui.print_error("create-pr playbook not found")
 
 
 def _interactive_model_selector(ui, config, planner):

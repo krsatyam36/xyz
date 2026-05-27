@@ -85,6 +85,25 @@ def test_playbook_step_defaults():
     step = PlaybookStep(instruction="Default mode")
     assert step.mode == "build"
     assert step.confirm is False
+    assert step.retry_on_fail is False
+    assert step.max_loops == 1
+    assert step.failure_detection == ""
+    assert step.success_condition == ""
+
+
+def test_playbook_step_retry():
+    step = PlaybookStep(
+        instruction="Test retry",
+        mode="build",
+        retry_on_fail=True,
+        max_loops=3,
+        failure_detection="error|failed",
+        success_condition="All tests pass",
+    )
+    assert step.retry_on_fail is True
+    assert step.max_loops == 3
+    assert step.failure_detection == "error|failed"
+    assert step.success_condition == "All tests pass"
 
 
 def test_playbook_tags():
