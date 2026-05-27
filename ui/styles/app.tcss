@@ -1,0 +1,40 @@
+/* XYZ App - Global Styles - opencode inspired */
+
+Screen {
+    background: #0d0d0d;
+    color: #e0e0e0;
+}
+
+ScrollableContainer {
+    scrollbar-color: #888888 #0d0d0d;
+    scrollbar-background: #0d0d0d;
+    scrollbar-color-hover: #e0e0e0 #0d0d0d;
+}
+
+Input {
+    border: none;
+    background: transparent;
+    color: #e0e0e0;
+}
+
+Input:focus {
+    border: none;
+}
+
+DataTable {
+    background: transparent;
+}
+
+DataTable > .datatable--header {
+    background: #1a1a1a;
+    color: #e0e0e0;
+}
+
+DataTable > .datatable--cursor {
+    background: #888888;
+    color: #0d0d0d;
+}
+
+DataTable > .datatable--hover {
+    background: #1a1a1a;
+}

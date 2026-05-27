@@ -1,0 +1,23 @@
+/* Main screen styles - opencode inspired */
+MainScreen {
+    layout: vertical;
+    background: #0d0d0d;
+}
+
+#header-panel {
+    height: auto;
+    content-align: center top;
+}
+
+#chat-panel {
+    height: 1fr;
+}
+
+#status-bar {
+    height: 3;
+}
+
+#input-panel {
+    height: 3;
+    margin: 1 0;
+}

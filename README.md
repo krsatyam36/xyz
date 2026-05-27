@@ -1,2 +1,1543 @@
-# xyz
-XYZ is a CLI tool that brings AI-powered coding assistance directly to your terminal. It features tool-calling capabilities, session memory, themeable UI, and a local gateway that proxies requests to NVIDIA's NIM API with streaming support, caching, and token tracking.
+<div align="center">
+
+# XYZ — Open Source AI Coding Agent
+
+**v0.4.0** — *An open source AI coding agent for the terminal, inspired by OpenCode and Claude Code*
+
+[![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat&logo=python&logoColor=white)](https://python.org)
+[![NVIDIA NIM](https://img.shields.io/badge/NVIDIA_NIM-API-76B900?style=flat&logo=nvidia&logoColor=white)](https://build.nvidia.com)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?style=flat&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![Rich](https://img.shields.io/badge/Rich-13.7+-FC6D26?style=flat&logo=python&logoColor=white)](https://rich.readthedocs.io)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)](.github/workflows/ci.yml)
+
+**Created by [Kumar Satyam](mailto:kumarsatyam3135@gmail.com)**
+
+A powerful terminal-based AI coding agent with tool-calling, multi-agent architecture, session memory, streaming responses, and a local FastAPI gateway proxying to NVIDIA's NIM API.
+
+</div>
+
+---
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Features](#features)
+- [System Design](#system-design)
+  - [High-Level Design (HLD)](#high-level-design-hld)
+  - [Low-Level Design (LLD)](#low-level-design-lld)
+- [Project Structure](#project-structure)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Usage](#usage)
+  - [Ask Questions](#ask-questions)
+  - [Make Changes](#make-changes)
+  - [Undo/Redo Changes](#undoredo-changes)
+- [Commands](#commands)
+- [Slash Commands](#slash-commands)
+- [Agents](#agents)
+- [Tools](#tools)
+- [Themes](#themes)
+- [Safety System](#safety-system)
+- [Session Management](#session-management)
+- [Gateway API](#gateway-api)
+- [Configuration](#configuration)
+- [Development](#development)
+- [Testing](#testing)
+
+---
+
+## Overview
+
+XYZ is an **open source AI coding agent** that runs in your terminal. It connects to NVIDIA's NIM API to provide an AI-powered assistant that can:
+
+- Read, write, and edit files in your project
+- Execute shell commands for builds, tests, git operations
+- Search your codebase with regex and glob patterns
+- Fetch web content and search the web
+- Manage session history with undo/redo
+- Operate in multiple agent modes (Build, Plan, Explore)
+
+**Everything runs locally — only the AI inference is remote via NVIDIA NIM.**
+
+---
+
+## Features
+
+```mermaid
+mindmap
+  root((XYZ))
+    Agent System
+      Build Mode
+      Plan Mode
+      Explore Mode
+      Multi-turn loops
+      Tool orchestration
+    Playbook System
+      Reusable Workflows
+      Built-in Playbooks
+      Sequential Steps
+      Multi-mode Steps
+      Custom Playbooks
+    File Operations
+      Read files
+      Write files
+      Edit files (precise)
+      Apply patches
+      List directories
+    Code Search
+      grep (regex)
+      Glob patterns
+      File tree
+    Web Access
+      Fetch URLs
+      Web search
+    Safety
+      Hard-blocked commands
+      Safe command lists
+      Confirmation prompts
+      Trust mode
+    Session Management
+      Persistent sessions
+      File history
+      Undo / Redo
+      Session export
+    Terminal UI
+      Rich-based CLI
+      Textual TUI
+      6 built-in themes
+      Streaming responses
+      Status bar
+    Gateway
+      FastAPI proxy
+      LRU caching
+      Token tracking
+      SSE streaming
+```
+
+---
+
+## System Design
+
+### High-Level Design (HLD)
+
+The following diagram shows the complete system architecture with all agent subsystems, storage layers, and external integrations:
+
+```mermaid
+graph TB
+    subgraph "User Interfaces"
+        CLI[main.py - Typer CLI]
+        TUI[Textual TUI - ui/app.py]
+        RTUI[Rich Terminal UI - ui/terminal.py]
+    end
+
+    subgraph "Agent Layer"
+        Planner[AgentPlanner]
+        SessionMem[SessionMemory - Undo/Redo]
+        Parser[Tool Parser - 4 formats]
+        Safety[Safety Checker]
+        Perms[Permission Tiers - HITL]
+        Tools[Tool Registry - 15 tools]
+        Playbook[Playbook Engine]
+        Codebase[Codebase Analyzer - AST + RAG]
+        MemStore[Architectural Memory - SQLite]
+    end
+
+    subgraph "Gateway Layer"
+        FastAPI[FastAPI Gateway - 6 endpoints]
+        Provider[NIMProvider - NVIDIA]
+        Cache[LRU Cache - 500 entries]
+        Tracker[Token Tracker]
+    end
+
+    subgraph "External"
+        NIM[NVIDIA NIM API]
+        Web[Web / Search]
+    end
+
+    subgraph "Local Storage"
+        Config[~/.xyz/config.json]
+        Sessions[~/.xyz/sessions/*.json]
+        Keyring[OS Keyring - API Key]
+        Agents[AGENTS.md - Project Context]
+        PlaybooksDir[~/.xyz/playbooks/*.yml]
+        MemoryDB[~/.xyz/memory.db - SQLite]
+        ASTCache[~/.xyz/cache/ast/ - AST Cache]
+        RAGIndex[~/.xyz/cache/rag/ - Code Index]
+    end
+
+    CLI --> Planner
+    TUI --> Planner
+    RTUI --> Planner
+    Planner --> SessionMem
+    Planner --> Parser
+    Planner --> Safety
+    Safety --> Perms
+    Planner --> Tools
+    Planner --> FastAPI
+    Planner --> MemStore
+    FastAPI --> Provider
+    FastAPI --> Cache
+    FastAPI --> Tracker
+    Provider --> NIM
+    Tools --> Web
+    Playbook --> Planner
+    Playbook --> PlaybooksDir
+    Codebase --> Tools
+    Codebase --> ASTCache
+    Codebase --> RAGIndex
+    MemStore --> MemoryDB
+    MemStore --> Planner
+    CLI --> Config
+    SessionMem --> Sessions
+    CLI --> Keyring
+    Planner --> Agents
+    Perms --> Tools
+```
+
+**Component Roles:**
+
+| Layer | Component | Responsibility |
+|-------|-----------|---------------|
+| UI | CLI / TUI / Rich | User interaction, command dispatch, rendering |
+| Agent | AgentPlanner | Core agent loop: message → LLM → tool execution → loop |
+| Agent | Permission Tiers | Three-tier shell command classification: auto/ask/deny |
+| Agent | Architectural Memory | SQLite-backed persistent codebase rules |
+| Agent | Codebase Analyzer | Python AST parsing + keyword-based CodeRAG |
+| Agent | Playbook Engine | Multi-step workflow definition and execution |
+| Gateway | FastAPI | Local proxy with SSE streaming, caching, token tracking |
+| Gateway | NIMProvider | Async HTTP client to NVIDIA NIM API |
+
+### Request Flow
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant UI as CLI / TUI
+    participant P as AgentPlanner
+    participant M as Memory Store
+    participant Perm as Permission Tiers
+    participant G as Gateway (FastAPI)
+    participant NIM as NVIDIA NIM API
+    participant T as Tools
+
+    U->>UI: Type message or command
+    
+    alt Slash Command
+        UI->>P: Handle slash command
+        P->>M: /remember, /memory, /forget
+        P->>T: /semantic (AST + RAG), /blame
+        P->>Playbook: /playbook, /pr
+    else Chat Message
+        UI->>P: process(input, model)
+        P->>M: Inject architectural memory into system prompt
+        P->>G: POST /v1/chat (streaming + tools)
+        G->>NIM: Forward with tool definitions
+        NIM-->>G: Stream tokens + tool calls
+        G-->>P: SSE events
+
+        alt Tool Call
+            P->>T: Execute tool
+            alt execute_shell
+                T->>Perm: classify_command()
+                alt Auto-approve
+                    Perm-->>T: Execute directly
+                else Ask
+                    Perm-->>UI: [CONFIRM] y/n?
+                    UI-->>T: User approves
+                else Denied
+                    Perm-->>UI: [BLOCKED] with reason
+                end
+            end
+            T-->>P: Result
+            P->>SessionMem: Track file writes for undo/redo
+            P->>G: Feed result back to model
+            G->>NIM: Continue conversation loop
+        else Text Response
+            P-->>UI: Stream tokens to user
+        end
+    end
+    
+    UI-->>U: Show output
+```
+
+### Low-Level Design (LLD)
+
+#### 1. AgentPlanner Class Diagram
+
+```mermaid
+classDiagram
+    class AgentPlanner {
+        +str gateway_url
+        +SessionMemory session
+        +str agent_mode
+        +_get_system_prompt() str
+        +_get_tools() List[dict]
+        +process(input, model, trust_mode) AsyncGenerator
+    }
+
+    class SessionMemory {
+        +str id
+        +str created
+        +List[dict] messages
+        +Dict[str, List[str]] file_history
+        +Dict[str, List[str]] redo_stack
+        +List[str] context_files
+        +add_message(role, content)
+        +get_messages() List[dict]
+        +track_file_write(path, old_content)
+        +undo_last_write(path) str
+        +redo_last_write(path) str
+        +save()
+        +load(session_id) SessionMemory
+    }
+
+    class ToolParser {
+        +parse_tool_calls(response) List[dict]
+        +extract_text_response(response) str
+    }
+
+    class SafetyChecker {
+        +is_hard_blocked(command) Tuple[bool, str]
+        +is_safe_command(command) bool
+        +needs_confirmation(command) bool
+    }
+
+    AgentPlanner --> SessionMemory
+    AgentPlanner --> ToolParser
+    AgentPlanner --> SafetyChecker
+    AgentPlanner --> PermissionTiers
+    AgentPlanner --> MemoryStore
+```
+
+#### 2. Permission Tiers (HITL)
+
+```mermaid
+flowchart TD
+    Cmd[Shell Command] --> Classify{classify_command()}
+    Classify --> Match{Match Pattern?}
+    
+    Match -->|Deny Regex| Deny[TIER: DENY]
+    Match -->|Ask Prefix| Ask[TIER: ASK]
+    Match -->|Auto Prefix| Auto[TIER: AUTO-APPROVE]
+    Match -->|No Match| AskDefault[TIER: ASK - Unknown]
+    
+    Deny --> |Trust Mode Off| Block[BLOCKED with reason]
+    Deny --> |Trust Mode On| Execute
+    
+    Ask --> |Trust Mode Off| Confirm[Ask user: y/n?]
+    Ask --> |Trust Mode On| Execute
+    
+    Auto --> Execute[Execute command]
+    
+    Confirm --> |Yes| Execute
+    Confirm --> |No| Block
+    
+    subgraph "Auto-Approved Commands"
+        A1[ls, pwd, cd, cat, grep]
+        A2[git status, git log, git diff]
+        A3[pytest, ruff, mypy]
+        A4[echo, date, which, find]
+    end
+    
+    subgraph "Ask-First Commands"
+        Q1[pip install, npm install]
+        Q2[git push, git commit]
+        Q3[rm, docker, chmod]
+        Q4[curl, wget, apt-get]
+    end
+    
+    subgraph "Denied Commands"
+        D1[sudo, rm -rf /]
+        D2[shutdown, reboot, mkfs]
+        D3[curl|bash, wget|sh]
+        D4[fork bombs, dd if=]
+    end
+```
+
+```mermaid
+classDiagram
+    class PermissionTiers {
+        +List[str] AUTO_APPROVE_COMMANDS
+        +List[str] ASK_COMMANDS
+        +List[str] DENY_REGEX_PATTERNS
+        +classify_command(command) PermissionResult
+    }
+
+    class PermissionResult {
+        +str tier
+        +str reason
+        +str command
+        +allow_auto() bool
+        +needs_ask() bool
+        +is_denied() bool
+    }
+
+    PermissionTiers --> PermissionResult
+```
+
+#### 3. Architectural Memory (SQLite)
+
+```mermaid
+classDiagram
+    class MemoryStore {
+        +remember_rule(rule, category, source) dict
+        +forget_rule(rule) dict
+        +list_rules(category) List[dict]
+        +get_memory_context(max_rules) str
+        +set_preference(key, value) dict
+        +get_preference(key) str
+        +export_memory_to_md() str
+    }
+
+    class SQLiteDB {
+        +rules table
+        +preferences table
+        +insert_rule()
+        +update_rule()
+        +query_rules()
+    }
+
+    class AgentPlanner {
+        +_get_system_prompt() str
+    }
+
+    MemoryStore --> SQLiteDB
+    AgentPlanner --> MemoryStore : inject context
+    
+    note for AgentPlanner "Memory injected into\nsystem prompt on\nevery process() call"
+```
+
+**Sequence Diagram: Architectural Memory Flow**
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant UI as CLI
+    participant Store as MemoryStore
+    participant DB as SQLite (~/.xyz/memory.db)
+    participant Planner as AgentPlanner
+    participant LLM as AI Model
+
+    U->>UI: /remember Use Pydantic v2 //style
+    UI->>Store: remember_rule(rule, "style", "user")
+    Store->>DB: INSERT OR UPDATE rules
+    DB-->>Store: success
+    Store-->>UI: remembered/reinforced
+    UI-->>U: ✓ remembered
+
+    U->>UI: Write a Pydantic validator
+    UI->>Planner: process(input, model)
+    Planner->>Store: get_memory_context(10)
+    Store->>DB: SELECT * FROM rules
+    DB-->>Store: [rules...]
+    Store-->>Planner: Formatted: "[Architectural Memory]..."
+    Planner->>LLM: System Prompt + Memory Context + User Message
+    LLM-->>Planner: Uses Pydantic v2 conventions
+
+    U->>UI: /memory
+    UI->>Store: list_rules()
+    Store->>DB: SELECT * FROM rules
+    DB-->>Store: [all rules]
+    Store-->>UI: Display rules table
+    UI-->>U: Shows all learned rules
+
+    U->>UI: /forget Use Pydantic v2
+    UI->>Store: forget_rule("Use Pydantic v2")
+    Store->>DB: DELETE FROM rules
+    DB-->>Store: deleted
+    Store-->>UI: forgotten
+    UI-->>U: ✓ forgotten
+```
+
+#### 4. Codebase Analyzer (AST + CodeRAG)
+
+```mermaid
+classDiagram
+    class CodebaseAnalyzer {
+        +parse_python_ast(file_path) dict
+        +analyze_codebase(path) dict
+        +CodeRAG
+    }
+
+    class ASTResult {
+        +str path
+        +List[Import] imports
+        +List[Function] functions
+        +List[Class] classes
+        +int total_lines
+    }
+
+    class CodeRAG {
+        +build_index(path) dict
+        +search(query, top_k) List[dict]
+        +get_relevant_context(query, top_k) str
+    }
+
+    class SearchIndex {
+        +Dict functions
+        +Dict classes
+        +Dict files
+        +Dict keywords
+    }
+
+    CodebaseAnalyzer --> ASTResult
+    CodeRAG --> SearchIndex
+    CodeRAG --> CodebaseAnalyzer : feeds from
+```
+
+**Sequence Diagram: Semantic Search Flow**
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant UI as CLI
+    participant RAG as CodeRAG
+    participant FS as File System
+    participant AST as AST Parser
+
+    U->>UI: /semantic
+    UI->>RAG: build_index(".")
+    RAG->>FS: rglob("*.py")
+    FS-->>RAG: [file paths]
+    
+    loop Each Python File
+        RAG->>AST: parse_python_ast(file)
+        AST->>FS: read file
+        FS-->>AST: source code
+        AST->>AST: ast.parse() → functions, classes, imports
+        AST-->>RAG: structured summary
+        RAG->>RAG: index keywords from names
+    end
+    
+    RAG-->>UI: Index stats
+    UI-->>U: 42 functions, 15 classes indexed
+
+    U->>UI: Look for authentication code
+    UI->>RAG: search("authentication auth login")
+    RAG->>RAG: keyword matching
+    RAG-->>UI: [auth.py: authenticate(), login(), AuthManager]
+    UI-->>U: Shows relevant files
+```
+
+#### 5. Playbook System with Self-Correction
+
+```mermaid
+classDiagram
+    class Playbook {
+        +str name
+        +str description
+        +str author
+        +str version
+        +List[PlaybookStep] steps
+        +List[str] tags
+    }
+
+    class PlaybookStep {
+        +str instruction
+        +str mode
+        +bool confirm
+        +bool retry_on_fail
+        +int max_loops
+        +str failure_detection
+        +str success_condition
+    }
+
+    class PlaybookEngine {
+        +load(name) Playbook
+        +save(playbook) Path
+        +list() List[dict]
+        +delete(name) bool
+        +init_builtins() int
+        +BUILTIN_PLAYBOOKS
+    }
+
+    class AgentPlanner {
+        +process() AsyncGenerator
+    }
+
+    Playbook "1" --> "*" PlaybookStep
+    PlaybookEngine --> Playbook
+    PlaybookStep --> AgentPlanner
+```
+
+**Self-Correction Execution Flow:**
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant CLI as CLI
+    participant PB as Playbook
+    participant P as AgentPlanner
+    participant G as Gateway
+
+    U->>CLI: xyz playbook run add-tests
+    CLI->>PB: steps=[...]
+    
+    loop Each Step
+        CLI->>U: Step i/N
+        
+        loop retry_on_fail: max_loops attempts
+            CLI->>P: AgentPlanner(mode=step.mode)
+            P->>G: process(instruction)
+            G-->>P: Stream results
+            
+            alt Attempt succeeded
+                P-->>CLI: Output
+                CLI-->>U: Display
+                Note over CLI: break - step passed
+            else Attempt failed
+                P-->>CLI: Error
+                alt More attempts left
+                    CLI->>U: Self-correcting...
+                    Note over CLI: Auto-generate debug prompt
+                else No attempts left
+                    CLI->>U: Step failed permanently
+                    Note over CLI: break - playbook aborted
+                end
+            end
+        end
+    end
+    
+    CLI->>U: Playbook completed!
+```
+
+---
+
+## Project Structure
+
+```
+xyz/
+├── main.py              # CLI entry point (Typer) + 30+ slash commands
+├── config.py            # Configuration, API key, sessions, exports
+├── pyproject.toml       # Modern Python packaging & tool config
+├── __init__.py          # Package metadata
+├── agent/
+    │   ├── planner.py       # Agent loop with multi-agent support
+    │   ├── memory.py        # Session memory with undo/redo
+    │   ├── memory_store.py  # Architectural memory (SQLite)
+    │   ├── parser.py        # Multi-format tool call parser (4 formats)
+    │   ├── safety.py        # Command safety checker (layered)
+    │   ├── permissions.py   # HITL permission tiers
+    │   ├── tools.py         # 15 tool implementations & registry
+    │   ├── playbook.py      # Playbook workflow engine
+    │   └── codebase.py      # AST parsing + CodeRAG
+├── gateway/
+│   ├── app.py           # FastAPI gateway server (6 endpoints)
+│   ├── providers.py     # NVIDIA NIM API provider
+│   └── cache.py         # LRU response cache
+├── ui/
+│   ├── terminal.py      # Rich-based terminal UI
+│   ├── themes.py        # 6 theme definitions
+│   ├── app.py           # Textual TUI application
+│   ├── panels/          # TUI panels (header, chat, input, status)
+│   └── widgets/         # TUI widgets (stream text, activity)
+├── utils/
+│   └── files.py         # Git context & file tree utilities
+├── tests/
+│   ├── test_tools.py        # Tool function tests
+│   ├── test_safety.py       # Safety system tests
+│   ├── test_memory.py       # Session memory tests
+│   ├── test_config.py       # Configuration tests
+│   ├── test_playbook.py     # Playbook system tests
+│   ├── test_permissions.py  # HITL permission tests
+│   ├── test_codebase.py     # AST + RAG tests
+│   └── test_memory_store.py # Architectural memory tests
+└── .github/workflows/
+    └── ci.yml           # GitHub Actions CI
+```
+
+---
+
+## Installation
+
+### Prerequisites
+
+- Python 3.10+
+- NVIDIA NIM API key (free at [build.nvidia.com](https://build.nvidia.com))
+
+### Setup
+
+```bash
+# Clone the repository
+git clone https://github.com/krsatyam36/xyz.git
+cd xyz
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Install in editable mode
+pip install -e .
+
+# Initialize with your API key
+xyz init
+```
+
+### Dependencies
+
+| Package | Purpose |
+|---------|---------|
+| `typer` | CLI framework |
+| `rich` | Terminal UI rendering |
+| `textual` | Full TUI framework |
+| `httpx` | Async HTTP client |
+| `fastapi` | Gateway server |
+| `uvicorn` | ASGI server |
+| `pydantic` | Data validation |
+| `orjson` | Fast JSON parsing |
+| `keyring` | Secure API key storage |
+| `prompt_toolkit` | Interactive input |
+
+---
+
+## Quick Start
+
+```bash
+# Initialize XYZ (first time only)
+xyz init
+
+# Start a chat session (Build mode)
+xyz chat
+
+# Plan mode (read-only analysis)
+xyz plan
+
+# Explore mode (search codebase)
+xyz explore
+
+# Use a specific model
+xyz chat --model meta/llama-3.3-70b-instruct
+
+# Resume a session
+xyz chat --session abc12345
+
+# Install dev tools
+pip install -e ".[dev]"
+```
+
+---
+
+## Usage
+
+### Ask Questions
+
+Ask XYZ about your codebase:
+
+```
+How is authentication handled in this project?
+```
+
+XYZ will read files, grep for patterns, and explain the code to you.
+
+### Make Changes
+
+XYZ can create, edit, and modify files:
+
+```
+Add a new route /health that returns {"status": "ok"} to the FastAPI app.
+```
+
+It will read the file, make precise edits, and show you what changed.
+
+### Undo/Redo Changes
+
+If a change isn't what you wanted:
+
+```
+/undo    # Revert the last file change
+/redo    # Restore a reverted change
+```
+
+Every file write is tracked in session memory — you can undo multiple changes.
+
+---
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `xyz init` | Initialize and set up API key |
+| `xyz chat` | Start interactive chat (Build mode) |
+| `xyz plan` | Start a planning session (read-only) |
+| `xyz explore` | Start an exploration session |
+| `xyz run` | Start chat (alias for `chat`) |
+| `xyz models` | List available models |
+| `xyz sessions` | List saved sessions |
+| `xyz themes` | List and set themes |
+| `xyz undo <id>` | Undo last file write in a session |
+| `xyz doctor` | Diagnose installation |
+| `xyz version` | Show version info |
+| `xyz playbook list` | List available playbooks |
+| `xyz playbook show <name>` | Show playbook details |
+| `xyz playbook run <name>` | Execute a playbook |
+| `xyz playbook create <name>` | Create a playbook interactively |
+| `xyz playbook delete <name>` | Delete a playbook |
+
+### Chat Options
+
+```
+xyz chat [OPTIONS]
+
+Options:
+  -m, --model TEXT       Model to use
+  -s, --session TEXT     Session ID to resume
+```
+
+---
+
+## Slash Commands
+
+All commands are fully implemented in chat sessions:
+
+| Command | Description |
+|---------|-------------|
+| `/help` | Show all available commands |
+| `/init` | Create AGENTS.md for the project |
+| `/model` | Interactive model picker |
+| `/models` | List all available models |
+| `/themes [name]` | List or set a theme |
+| `/trust [on/off]` | Toggle trust mode |
+| `/connect` | Connect a provider |
+| `/login` | Sign in with API key |
+| `/logout` | Sign out |
+| `/sessions` | List saved sessions |
+| `/resume <id>` | Resume a session |
+| `/new` or `/clear` | New session |
+| `/undo` | Undo last file change |
+| `/redo` | Redo last undo |
+| `/context` | Show repository context |
+| `/compact` | Compact session context |
+| `/export` | Export conversation to markdown |
+| `/config` | Show config paths |
+| `/diff` | View uncommitted changes |
+| `/doctor` | Diagnose installation |
+| `/effort [level]` | Set effort level (auto/low/medium/high/max) |
+| `/fast` | Toggle fast mode |
+| `/goal <desc>` | Set a session goal |
+| `/feedback` | Submit feedback |
+| `/focus` | Toggle focus view |
+| `/hooks` | View tool hooks |
+| `/ide` | IDE integration status |
+| `/keybindings` | Show keybindings |
+| `/branch` | Branch conversation |
+| `/background` | Background session |
+| `/btw <question>` | Ask side question |
+| `/copy` | Copy last response |
+| `/advisor` | Advisor tool status |
+| `/agents` | List available agents |
+| `/color <name>` | Set prompt color |
+| `/share` | Share current session |
+| `/unshare` | Unshare session |
+| `/add-dir <path>` | Add working directory |
+| `/install-github-app` | GitHub App setup |
+| `/details` | Toggle execution details |
+| `/playbooks` | List available playbooks |
+| `/playbook <name>` | Execute a playbook |
+| `/quit` or `/exit` | Exit XYZ |
+
+---
+
+## Agents
+
+XYZ features a multi-agent architecture with different modes for different tasks:
+
+```mermaid
+graph LR
+    subgraph "Primary Agents"
+        BUILD[Build - All tools]
+        PLAN[Plan - Read only]
+        EXPLORE[Explore - Search only]
+    end
+
+    subgraph "Usage"
+        TAB[Tab to switch]
+        CLI[xyz chat / plan / explore]
+    end
+
+    BUILD --> |Default| Full[Full file + shell access]
+    PLAN --> |Analysis| Read[Read + search only]
+    EXPLORE --> |Research| Search[Grep + glob + read]
+
+    TAB --> BUILD
+    TAB --> PLAN
+    CLI --> BUILD
+```
+
+| Agent | Mode | Description |
+|-------|------|-------------|
+| **Build** | Primary (default) | Full tool access — read, write, edit, shell, search |
+| **Plan** | Primary | Read-only analysis — no file modifications |
+| **Explore** | Primary | Search and read only — grep, glob, read |
+| **General** | Subagent | Research and multi-step tasks |
+| **Compact** | System | Session compaction (auto) |
+| **Title** | System | Session title generation (auto) |
+
+Switch between Build and Plan mode by pressing **Tab**, or start directly:
+```bash
+xyz chat      # Build mode
+xyz plan      # Plan mode
+xyz explore   # Explore mode
+```
+
+---
+
+## Tools
+
+XYZ provides **15 built-in tools** that the AI can use:
+
+```mermaid
+graph TB
+    subgraph "File Operations"
+        RF[read_file] --> FS[(File System)]
+        WF[write_file] --> FS
+        EF[edit_file] --> FS
+        AP[apply_patch] --> FS
+        LD[list_directory] --> FS
+    end
+
+    subgraph "Code Search"
+        GF[grep_files] --> FS
+        GL[glob_files] --> FS
+        SF[search_files] --> FS
+    end
+
+    subgraph "Shell & Web"
+        ES[execute_shell] --> SH[Shell]
+        WB[webfetch] --> WWW[Web]
+        WS[websearch] --> WWW
+    end
+
+    subgraph "Usage"
+        CRUD[Read / Write / Edit / Delete]
+        SEARCH[Regex / Glob / Grep]
+        EXEC[Build / Test / Git]
+    end
+```
+
+### Tool Details
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `read_file` | Read file contents (with optional line range) | `path`, `offset?`, `limit?` |
+| `write_file` | Create or overwrite a file | `path`, `content` |
+| `edit_file` | Precise text replacement (CRUD edit) | `path`, `old_string`, `new_string` |
+| `apply_patch` | Apply unified diff patches | `patch_text` |
+| `list_directory` | List directory entries | `path` |
+| `execute_shell` | Run shell command | `command`, `description?`, `timeout?` |
+| `grep_files` | Regex search across files | `pattern`, `path?`, `include?` |
+| `glob_files` | Find files by glob pattern | `pattern`, `path?` |
+| `search_files` | Legacy file search | `pattern`, `path?` |
+| `webfetch` | Fetch web page content | `url` |
+| `websearch` | Search the web | `query` |
+| `preview_diff` | Visual diff preview before applying | `path`, `new_content` |
+| `scaffold_project` | Scaffold a project from a template | `template`, `name`, `path?` |
+| `review_code` | AI-powered code review | `path`, `focus?` |
+| `run_in_terminal` | Interactive terminal sessions | `command`, `session_id?` |
+
+---
+
+## Themes
+
+XYZ ships with **6 built-in themes**:
+
+| Theme | Description |
+|-------|-------------|
+| **claude** | Claude Code inspired — warm copper/orange tones (default) |
+| **midnight** | Deep dark blues and soft whites |
+| **obsidian** | Pure dark with warm accents |
+| **aurora** | Northern lights inspired greens and purples |
+| **solarized** | Classic solarized dark palette |
+| **monokai** | Vibrant monokai colors |
+
+Change theme in-chat with `/themes <name>` or via `xyz themes`.
+
+---
+
+## Playbook System
+
+The **Playbook System** is XYZ's workflow automation engine. It lets you define, save, and execute multi-step AI agent workflows — turning the AI into a programmable automation platform.
+
+### High-Level Design
+
+```mermaid
+graph TB
+    subgraph "Playbook Lifecycle"
+        Create[Create Playbook]
+        Store[Store as YAML]
+        List[List Playbooks]
+        Run[Execute Playbook]
+    end
+
+    subgraph "Playbook Structure"
+        Name[Name & Description]
+        Steps[Sequential Steps]
+        Tags[Categorization]
+    end
+
+    subgraph "Step Execution"
+        Instruction[AI Instruction]
+        Mode[Agent Mode: build/plan/explore]
+        Confirm[Optional Confirmation]
+        Planner[AgentPlanner Instance]
+    end
+
+    Create --> Store
+    Store --> List
+    List --> Run
+    Run --> Steps
+    Steps --> Instruction
+    Steps --> Mode
+    Steps --> Confirm
+    Instruction --> Planner
+```
+
+### Low-Level Design
+
+```mermaid
+classDiagram
+    class Playbook {
+        +str name
+        +str description
+        +str author
+        +str version
+        +List[PlaybookStep] steps
+        +List[str] tags
+        +execute()
+    }
+
+    class PlaybookStep {
+        +str instruction
+        +str mode
+        +bool confirm
+        +execute()
+    }
+
+    class PlaybookEngine {
+        +load(name) Playbook
+        +save(playbook) Path
+        +list() List[dict]
+        +delete(name) bool
+        +init_builtins() int
+    }
+
+    class AgentPlanner {
+        +gateway_url
+        +session
+        +agent_mode
+        +process() AsyncGenerator
+    }
+
+    Playbook "1" --> "*" PlaybookStep
+    PlaybookEngine --> Playbook
+    PlaybookStep --> AgentPlanner
+```
+
+### Execution Flow
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant CLI as CLI
+    participant Eng as Playbook Engine
+    participant P as AgentPlanner
+    participant G as Gateway
+
+    U->>CLI: xyz playbook run code-review
+    CLI->>Eng: load("code-review")
+    Eng-->>CLI: Playbook(steps=[...])
+    
+    loop Each Step
+        CLI->>U: Show step N / total
+        CLI->>P: AgentPlanner(mode=step.mode)
+        P->>G: process(step.instruction)
+        G-->>P: Stream results
+        P-->>CLI: Display output
+    end
+    
+    CLI->>U: Playbook completed!
+```
+
+### Playbook Format (YAML)
+
+```yaml
+name: code-review
+description: Run a comprehensive code review
+author: xyz
+version: "1.0.0"
+tags: [review, quality, testing]
+steps:
+  - instruction: Check the git diff to understand changes
+    mode: explore
+  - instruction: Run ruff check and fix any linting issues
+    mode: build
+  - instruction: Run pytest and report results
+    mode: explore
+  - instruction: Provide a comprehensive code review summary
+    mode: build
+```
+
+### Built-in Playbooks
+
+| Playbook | Steps | Description |
+|----------|-------|-------------|
+| `code-review` | 5 | Check diff, lint, type-check, test, generate review report |
+| `refactor-module` | 4 | Analyze, plan, execute refactoring, verify with tests |
+| `add-api-endpoint` | 5 | Analyze patterns, plan, implement, write tests, verify |
+| `debug-issue` | 5 | Reproduce, diagnose, fix, verify, add regression test |
+| `add-tests` | 4 | Analyze module, plan tests, implement, verify |
+| `setup-project` | 4 | Analyze directory, plan structure, configure, verify |
+
+### Commands
+
+```bash
+# List all playbooks
+xyz playbook list
+
+# Show details of a specific playbook
+xyz playbook show code-review
+
+# Run a playbook
+xyz playbook run code-review
+
+# Run with a specific model
+xyz playbook run debug-issue --model meta/llama-3.1-405b-instruct
+
+# Create a new playbook interactively
+xyz playbook create my-workflow
+
+# Delete a playbook
+xyz playbook delete my-workflow
+```
+
+### Slash Commands
+
+| Command | Description |
+|---------|-------------|
+| `/playbooks` | List available playbooks with descriptions |
+| `/playbook <name>` | Execute a playbook by name |
+
+### Architecture
+
+Each playbook step runs as an independent `AgentPlanner` instance in the specified mode:
+- **explore** — read-only search and analysis
+- **plan** — read-only analysis and planning
+- **build** — full tool access for execution
+
+Steps execute sequentially — each step's output is streamed to the user in real-time.
+
+### Storage
+
+Playbooks are stored as YAML files in `~/.xyz/playbooks/`:
+
+```
+~/.xyz/playbooks/
+├── code-review.yml
+├── refactor-module.yml
+├── add-api-endpoint.yml
+├── debug-issue.yml
+├── add-tests.yml
+├── setup-project.yml
+└── <custom-playbooks>.yml
+```
+
+Built-in playbooks are automatically installed on `xyz init` or the first `xyz playbook` command.
+
+---
+
+## Safety System
+
+```mermaid
+flowchart TD
+    Input[Shell Command] --> Check{Is Hard Blocked?}
+    Check -->|Yes| Block[Reject with reason]
+    Check -->|No| Safe{Is Safe Command?}
+    Safe -->|Yes| Execute[Execute directly]
+    Safe -->|No| Trust{Trust Mode?}
+    Trust -->|Yes| Execute
+    Trust -->|No| Confirm[Ask user for confirmation]
+    Confirm -->|Yes| Execute
+    Confirm -->|No| Block
+```
+
+### Blocked Categories
+
+- **Destructive**: `rm -rf /`, `mkfs`, `dd`, `format`
+- **Privilege Escalation**: `sudo` commands
+- **System Control**: `shutdown`, `reboot`
+- **Remote Execution**: `curl | bash`, `wget | sh`
+- **Fork Bombs**: `:(){ :|:& };:`
+
+### Safe Commands (no confirmation needed)
+
+- `ls`, `pwd`, `cd`, `cat`, `grep`, `find`
+- `git status`, `git log`, `git diff`, `git branch`
+- `pip install`, `npm install`, `npm run`
+- `python`, `python3`, `pytest`, `make`
+- `curl`, `wget` (non-piped)
+
+---
+
+## Session Management
+
+```mermaid
+graph LR
+    subgraph "Session Data"
+        ID[Session ID]
+        Created[Created Timestamp]
+        Messages[Message History]
+        Files[File History]
+        Redo[Redo Stack]
+    end
+
+    subgraph "Operations"
+        Save[Auto-save]
+        Load[Resume]
+        Export[Markdown Export]
+        Delete[Delete]
+    end
+
+    ID --> Storage[(~/.xyz/sessions/)]
+    Created --> Storage
+    Messages --> Storage
+    Files --> Storage
+    Redo --> Storage
+```
+
+Sessions are automatically saved and can be resumed:
+
+```bash
+xyz sessions                     # List sessions
+xyz chat --session abc12345      # Resume a session
+xyz undo abc12345                # Undo from a session
+xyz session-delete abc12345      # Delete a session
+xyz session-export abc12345      # Export to markdown
+```
+
+### File History & Undo/Redo
+
+Every file write and edit is tracked:
+
+```
+/undo  # Revert the last file change
+/redo  # Restore a reverted change
+```
+
+---
+
+## Gateway API
+
+The local gateway runs on a free port (auto-detected):
+
+```mermaid
+graph LR
+    subgraph "Gateway Endpoints"
+        Health[GET /health]
+        Chat[POST /v1/chat]
+        NoStream[POST /v1/chat/non-stream]
+        Models[GET /v1/models]
+        Stats[GET /v1/stats]
+        Cache[POST /v1/cache/clear]
+    end
+
+    Health --> |Status OK| Client
+    Chat --> |SSE Stream| Client
+    NoStream --> |JSON Response| Client
+    Models --> |Model List| Client
+    Stats --> |Usage + Cache| Client
+```
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Health check |
+| `/v1/chat` | POST | Streaming chat completion (SSE) |
+| `/v1/chat/non-stream` | POST | Non-streaming chat completion |
+| `/v1/models` | GET | List available NVIDIA NIM models |
+| `/v1/stats` | GET | Token usage and cache stats |
+| `/v1/cache/clear` | POST | Clear response cache |
+
+### Streaming Protocol
+
+The gateway uses Server-Sent Events (SSE):
+
+```
+data: {"type":"token","data":"Hello"}
+data: {"type":"token","data":" world"}
+data: {"type":"tool_call","data":"{...}"}
+data: {"type":"usage","data":"{...}"}
+data: {"type":"done","content":"...","tool_calls":[],"usage":{...}}
+```
+
+---
+
+## Configuration
+
+Configuration is stored at `~/.xyz/config.json`:
+
+```json
+{
+  "api_key_set": true,
+  "default_model": "meta/llama-3.3-70b-instruct",
+  "vision_model": "meta/llama-3.2-90b-vision-instruct",
+  "gateway_port": 0,
+  "trust_mode": false,
+  "theme": "claude",
+  "discovered_models": [],
+  "effor_level": "auto",
+  "fast_mode": false,
+  "compact_auto": true,
+  "share_enabled": "manual",
+  "autoupdate": true
+}
+```
+
+API keys can be set via:
+1. **OS Keyring** (default, secure) — `xyz init`
+2. **Environment Variable** — `export XYZ_API_KEY=nvapi-...`
+3. **`/login` command** — in-chat authentication
+
+### Directory Structure
+
+```
+~/.xyz/
+├── config.json        # Main configuration
+├── sessions/          # Session data (*.json)
+├── cache/             # Response cache
+├── logs/              # Gateway and app logs
+├── providers/         # Provider configs
+├── commands/          # Custom commands
+├── agents/            # Custom agents
+├── themes/            # Custom themes
+└── playbooks/         # Automation playbooks (*.yml)
+```
+
+---
+
+## Development
+
+```bash
+# Install in editable mode with dev dependencies
+pip install -e ".[dev]"
+
+# Install pre-commit hooks
+pre-commit install
+
+# Run linting
+ruff check xyz/
+ruff format xyz/ --check
+
+# Run type checking
+mypy --ignore-missing-imports xyz/
+
+# Run tests
+pytest tests/ -v
+
+# Run tests with coverage
+pytest tests/ --cov=xyz --cov-report=term-missing
+
+# Run directly
+python -m xyz.main
+```
+
+### Adding a New Tool
+
+1. Add tool definition to `TOOL_DEFINITIONS` in `agent/tools.py`
+2. Implement the function in `agent/tools.py`
+3. Register in `TOOL_REGISTRY`
+4. Update `SYSTEM_PROMPT` in `agent/planner.py`
+5. Add to tool names in `agent/parser.py`
+6. Write tests in `tests/`
+
+### Adding a New Theme
+
+Add a new `Theme` entry to `THEMES` dict in `ui/themes.py`.
+
+### CI/CD
+
+GitHub Actions workflow runs on push/PR:
+- **Lint**: ruff + mypy
+- **Test**: pytest on Python 3.10, 3.11, 3.12
+- **Coverage**: Report via pytest-cov
+
+---
+
+## Testing
+
+```bash
+# Run all tests
+pytest tests/ -v
+
+# Run specific test file
+pytest tests/test_tools.py -v
+
+# Run with coverage
+pytest tests/ --cov=xyz --cov-report=html
+
+# Run safety tests
+pytest tests/test_safety.py -v
+```
+
+---
+
+## Changelog
+
+### v0.4.0 (2026-05-27)
+
+**5 Major Feature Releases: Autonomous Loops, Deep Code Context, HITL Permissions, Git DevOps, Architectural Memory**
+
+#### 1. Autonomous Test-and-Fix Loop
+- `PlaybookStep` now supports `retry_on_fail`, `max_loops`, `failure_detection`, `success_condition`
+- Playbook runner catches failures and auto-retries with a debug instruction
+- CLI and in-chat runners both support self-correction with visual attempt tracking
+
+#### 2. Deep Codebase Context (AST Parsing + Local RAG)
+- **`agent/codebase.py`** — Python AST parser extracting function signatures, class definitions, imports, and decorators
+- **CodeRAG** — Lightweight keyword-based local search index for semantic code lookup
+- `/semantic` slash command — Build and search the codebase index
+- AST analysis shows function count, class count, import graph per file
+
+#### 3. Human-In-The-Loop (HITL) Permission Tiers
+- **`agent/permissions.py`** — Three-tier system: auto-approve, ask-first, deny
+- Integrated into `AgentPlanner.process()` for all shell commands
+- Auto-approved: ls, git status, pytest, echo, etc.
+- Ask-first: pip install, git push, docker, chmod, curl, wget
+- Denied: sudo, rm -rf /, shutdown, curl|bash, mkfs, fork bombs
+
+#### 4. Git & DevOps Mastery
+- **create-pr** playbook — Auto-branch, commit, push, and open PR via `gh`
+- **blame-debug** playbook — Git blame + commit history analysis for debugging
+- `/blame <file>` — Quick git blame analysis
+- `/pr` — Launch the create-pr playbook
+
+#### 5. Architectural Memory
+- **`agent/memory_store.py`** — SQLite-backed persistent rule database
+- Rules stored with categories, weight (auto-reinforced on duplicates), and source tracking
+- `/remember <rule> //category` — Teach the agent codebase conventions
+- `/forget <rule>` — Remove a learned rule
+- `/memory` — Display all learned rules
+- Memory auto-injected into the system prompt on every request via `get_memory_context()`
+- `export_memory_to_md()` syncs to `~/.xyz/memory.md`
+
+**Files Added:**
+- `agent/permissions.py` — HITL permission tiers (22 tests)
+- `agent/codebase.py` — AST parsing + CodeRAG (8 tests)
+- `agent/memory_store.py` — SQLite architectural memory (7 tests)
+- `tests/test_permissions.py` — 18 permission classification tests
+- `tests/test_codebase.py` — 7 AST and RAG tests
+- `tests/test_memory_store.py` — 7 memory persistence tests
+
+**Files Modified:**
+- `agent/playbook.py` — Added retry_on_fail, max_loops, failure_detection, success_condition to PlaybookStep; added create-pr and blame-debug playbooks
+- `agent/planner.py` — Memory injection into system prompts; permission-tier integration for shell execution
+- `main.py` — Added 7 new slash commands; self-correction loops in both CLI and in-chat playbook runners; new imports
+- `ui/terminal.py` — Added 6 new commands to COMMANDS_LIST
+- `__init__.py` — v0.3.0 → v0.4.0
+- `tests/test_playbook.py` — Added retry/max_loops field tests
+
+### v0.3.0 (2026-05-27)
+
+**Playbook System — Reusable AI Workflow Automation**
+
+- **Playbook Engine**: Define multi-step AI agent workflows as YAML files
+- **6 Built-in Playbooks**: code-review, refactor-module, add-api-endpoint, debug-issue, add-tests, setup-project
+- **Multi-mode Steps**: Each step can run in build, plan, or explore mode
+- **CLI Commands**: `xyz playbook list`, `xyz playbook show`, `xyz playbook run`, `xyz playbook create`, `xyz playbook delete`
+- **Slash Commands**: `/playbooks` (list), `/playbook <name>` (run)
+- **Interactive Creation**: `xyz playbook create` guides you through step-by-step workflow definition
+- **Auto-installation**: Built-in playbooks are seeded on `xyz init`
+- **YAML Storage**: Playbooks stored at `~/.xyz/playbooks/*.yml`
+- **10 new tests** covering playbook CRUD, serialization, built-in initialization
+
+**Files Added:**
+- `agent/playbook.py` - Playbook models (Pydantic), YAML I/O, built-in definitions, engine
+- `tests/test_playbook.py` - 10 comprehensive tests
+
+**Files Modified:**
+- `config.py` - Added `PLAYBOOKS_DIR`, updated `ensure_dirs()` and `get_config_paths()`
+- `main.py` - Added `playbook` CLI group with 5 subcommands, 2 slash command handlers
+- `ui/terminal.py` - Added `/playbooks` and `/playbook` to COMMANDS_LIST
+- `__init__.py` - Bumped version to 0.3.0
+- `README.md` - Updated with comprehensive Playbook System documentation
+
+### v0.2.0 (2026-05-21)
+
+**UI Redesign - OpenCode-Inspired Interface**
+
+- **Header Panel**: Fixed ASCII logo to display "XYZ" properly (was showing "VI")
+- **Welcome Screen**: Removed unwanted text, cleaned up display with:
+  - Model information display (Build · model_name)
+  - Keyboard shortcut hints (tab agents, ctrl+p commands)
+  - Tip message styled with yellow bullet point
+- **Input Panel**: Integrated into welcome screen, positioned directly below tip message
+  - Input field centered on welcome screen
+  - Auto-hides when chat starts, reappears on `/clear`
+- **Status Bar**: Streamlined to show only essential information (model name, time)
+- **CSS Updates**: Updated color scheme from purple (#c890c8) to neutral gray (#888888) for a cleaner look
+
+**40+ Slash Commands Implemented:**
+
+All previously non-functional commands now work:
+- `/themes [name]` - List or set a theme (6 themes available)
+- `/trust [on/off]` - Toggle trust mode
+- `/connect` - Connect a provider
+- `/login` / `/logout` - Sign in/out with API key
+- `/sessions` / `/resume <id>` - Session management
+- `/undo` / `/redo` - File change history
+- `/context` / `/compact` - Context management
+- `/export` - Export conversation to markdown
+- `/config` / `/diff` / `/doctor` - System diagnostics
+- `/effort [level]` - Set effort level (auto/low/medium/high/max)
+- `/fast` - Toggle fast mode
+- `/goal <desc>` - Set session goal
+- `/feedback` / `/focus` / `/hooks` / `/ide` - Various features
+- `/keybindings` - Show keybindings
+- `/branch` / `/background` - Session features
+- `/btw <question>` - Ask side question
+- `/copy` / `/advisor` / `/agents` - AI features
+- `/color <name>` - Set prompt color
+- `/share` / `/unshare` - Session sharing
+- `/add-dir <path>` - Add working directory
+- `/install-github-app` - GitHub App setup
+- `/details` - Toggle execution details
+- `/quit` / `/exit` - Exit XYZ
+
+**5 OpenCode Super Features Added:**
+
+1. **preview_diff** - Visual diff preview before applying changes
+   - Shows unified diff of proposed modifications
+   - Helps verify changes before committing
+
+2. **scaffold_project** - Project scaffolding from templates
+   - Supports: python, fastapi, react, nextjs
+   - Creates complete project structure with boilerplate
+
+3. **review_code** - AI-powered code review
+   - Analyzes code for issues, bugs, and improvements
+   - Focus options: general, security, performance, style
+
+4. **run_in_terminal** - Interactive terminal sessions
+   - Maintains state between commands
+   - Session-based command execution
+
+5. **share_session** - Session sharing capabilities
+   - Share conversations with others
+   - Collaborative coding support
+
+**Files Modified:**
+- `ui/panels/header_panel.py` - Fixed XYZ ASCII logo
+- `ui/panels/chat_panel.py` - Cleaned welcome message
+- `ui/panels/input_panel.py` - Centered input field
+- `ui/panels/status_bar.py` - Streamlined status display
+- `ui/styles/main.tcss` - Updated screen layout
+- `ui/app.py` - Added 40+ slash commands
+- `agent/tools.py` - Added 5 new tools (15 total)
+- `README.md` - Updated documentation
+
+---
+
+<div align="center">
+
+**Created with by [Kumar Satyam](mailto:kumarsatyam3135@gmail.com)**
+
+[GitHub](https://github.com/krsatyam36/xyz) | [Report Issue](https://github.com/krsatyam36/xyz/issues)
+
+</div>
