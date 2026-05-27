@@ -2,7 +2,7 @@
 
 # XYZ — Open Source AI Coding Agent
 
-**v0.2.0** — *An open source AI coding agent for the terminal, inspired by OpenCode and Claude Code*
+**v0.3.0** — *An open source AI coding agent for the terminal, inspired by OpenCode and Claude Code*
 
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat&logo=python&logoColor=white)](https://python.org)
 [![NVIDIA NIM](https://img.shields.io/badge/NVIDIA_NIM-API-76B900?style=flat&logo=nvidia&logoColor=white)](https://build.nvidia.com)
@@ -71,6 +71,12 @@ mindmap
       Explore Mode
       Multi-turn loops
       Tool orchestration
+    Playbook System
+      Reusable Workflows
+      Built-in Playbooks
+      Sequential Steps
+      Multi-mode Steps
+      Custom Playbooks
     File Operations
       Read files
       Write files
@@ -124,7 +130,8 @@ graph TB
         Memory[SessionMemory]
         Parser[Tool Parser - 4 formats]
         Safety[Safety Checker]
-        Tools[Tool Registry - 11 tools]
+        Tools[Tool Registry - 15 tools]
+        Playbook[Playbook Engine]
     end
 
     subgraph "Gateway Layer"
@@ -159,10 +166,15 @@ graph TB
     FastAPI --> Tracker
     Provider --> NIM
     Tools --> Web
+    Playbook --> Planner
+    Playbook --> PlaybooksDir
     CLI --> Config
     Memory --> Sessions
     CLI --> Keyring
     Planner --> Agents
+    subgraph "Playbook Storage"
+        PlaybooksDir[~/.xyz/playbooks/*.yml]
+    end
 ```
 
 ### Request Flow
@@ -207,11 +219,12 @@ xyz/
 ├── pyproject.toml       # Modern Python packaging & tool config
 ├── __init__.py          # Package metadata
 ├── agent/
-│   ├── planner.py       # Agent loop with multi-agent support
-│   ├── memory.py        # Session memory with undo/redo
-│   ├── parser.py        # Multi-format tool call parser (4 formats)
-│   ├── safety.py        # Command safety checker (layered)
-│   └── tools.py         # 11 tool implementations & registry
+    │   ├── planner.py       # Agent loop with multi-agent support
+    │   ├── memory.py        # Session memory with undo/redo
+    │   ├── parser.py        # Multi-format tool call parser (4 formats)
+    │   ├── safety.py        # Command safety checker (layered)
+    │   ├── tools.py         # 15 tool implementations & registry
+    │   └── playbook.py      # Playbook workflow engine
 ├── gateway/
 │   ├── app.py           # FastAPI gateway server (6 endpoints)
 │   ├── providers.py     # NVIDIA NIM API provider
@@ -228,7 +241,8 @@ xyz/
 │   ├── test_tools.py    # Tool function tests
 │   ├── test_safety.py   # Safety system tests
 │   ├── test_memory.py   # Session memory tests
-│   └── test_config.py   # Configuration tests
+│   ├── test_config.py   # Configuration tests
+│   └── test_playbook.py # Playbook system tests
 └── .github/workflows/
     └── ci.yml           # GitHub Actions CI
 ```
@@ -353,6 +367,11 @@ Every file write is tracked in session memory — you can undo multiple changes.
 | `xyz undo <id>` | Undo last file write in a session |
 | `xyz doctor` | Diagnose installation |
 | `xyz version` | Show version info |
+| `xyz playbook list` | List available playbooks |
+| `xyz playbook show <name>` | Show playbook details |
+| `xyz playbook run <name>` | Execute a playbook |
+| `xyz playbook create <name>` | Create a playbook interactively |
+| `xyz playbook delete <name>` | Delete a playbook |
 
 ### Chat Options
 
@@ -412,6 +431,8 @@ All commands are fully implemented in chat sessions:
 | `/add-dir <path>` | Add working directory |
 | `/install-github-app` | GitHub App setup |
 | `/details` | Toggle execution details |
+| `/playbooks` | List available playbooks |
+| `/playbook <name>` | Execute a playbook |
 | `/quit` or `/exit` | Exit XYZ |
 
 ---
@@ -462,7 +483,7 @@ xyz explore   # Explore mode
 
 ## Tools
 
-XYZ provides **11 built-in tools** that the AI can use:
+XYZ provides **15 built-in tools** that the AI can use:
 
 ```mermaid
 graph TB
@@ -508,6 +529,10 @@ graph TB
 | `search_files` | Legacy file search | `pattern`, `path?` |
 | `webfetch` | Fetch web page content | `url` |
 | `websearch` | Search the web | `query` |
+| `preview_diff` | Visual diff preview before applying | `path`, `new_content` |
+| `scaffold_project` | Scaffold a project from a template | `template`, `name`, `path?` |
+| `review_code` | AI-powered code review | `path`, `focus?` |
+| `run_in_terminal` | Interactive terminal sessions | `command`, `session_id?` |
 
 ---
 
@@ -525,6 +550,197 @@ XYZ ships with **6 built-in themes**:
 | **monokai** | Vibrant monokai colors |
 
 Change theme in-chat with `/themes <name>` or via `xyz themes`.
+
+---
+
+## Playbook System
+
+The **Playbook System** is XYZ's workflow automation engine. It lets you define, save, and execute multi-step AI agent workflows — turning the AI into a programmable automation platform.
+
+### High-Level Design
+
+```mermaid
+graph TB
+    subgraph "Playbook Lifecycle"
+        Create[Create Playbook]
+        Store[Store as YAML]
+        List[List Playbooks]
+        Run[Execute Playbook]
+    end
+
+    subgraph "Playbook Structure"
+        Name[Name & Description]
+        Steps[Sequential Steps]
+        Tags[Categorization]
+    end
+
+    subgraph "Step Execution"
+        Instruction[AI Instruction]
+        Mode[Agent Mode: build/plan/explore]
+        Confirm[Optional Confirmation]
+        Planner[AgentPlanner Instance]
+    end
+
+    Create --> Store
+    Store --> List
+    List --> Run
+    Run --> Steps
+    Steps --> Instruction
+    Steps --> Mode
+    Steps --> Confirm
+    Instruction --> Planner
+```
+
+### Low-Level Design
+
+```mermaid
+classDiagram
+    class Playbook {
+        +str name
+        +str description
+        +str author
+        +str version
+        +List[PlaybookStep] steps
+        +List[str] tags
+        +execute()
+    }
+
+    class PlaybookStep {
+        +str instruction
+        +str mode
+        +bool confirm
+        +execute()
+    }
+
+    class PlaybookEngine {
+        +load(name) Playbook
+        +save(playbook) Path
+        +list() List[dict]
+        +delete(name) bool
+        +init_builtins() int
+    }
+
+    class AgentPlanner {
+        +gateway_url
+        +session
+        +agent_mode
+        +process() AsyncGenerator
+    }
+
+    Playbook "1" --> "*" PlaybookStep
+    PlaybookEngine --> Playbook
+    PlaybookStep --> AgentPlanner
+```
+
+### Execution Flow
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant CLI as CLI
+    participant Eng as Playbook Engine
+    participant P as AgentPlanner
+    participant G as Gateway
+
+    U->>CLI: xyz playbook run code-review
+    CLI->>Eng: load("code-review")
+    Eng-->>CLI: Playbook(steps=[...])
+    
+    loop Each Step
+        CLI->>U: Show step N / total
+        CLI->>P: AgentPlanner(mode=step.mode)
+        P->>G: process(step.instruction)
+        G-->>P: Stream results
+        P-->>CLI: Display output
+    end
+    
+    CLI->>U: Playbook completed!
+```
+
+### Playbook Format (YAML)
+
+```yaml
+name: code-review
+description: Run a comprehensive code review
+author: xyz
+version: "1.0.0"
+tags: [review, quality, testing]
+steps:
+  - instruction: Check the git diff to understand changes
+    mode: explore
+  - instruction: Run ruff check and fix any linting issues
+    mode: build
+  - instruction: Run pytest and report results
+    mode: explore
+  - instruction: Provide a comprehensive code review summary
+    mode: build
+```
+
+### Built-in Playbooks
+
+| Playbook | Steps | Description |
+|----------|-------|-------------|
+| `code-review` | 5 | Check diff, lint, type-check, test, generate review report |
+| `refactor-module` | 4 | Analyze, plan, execute refactoring, verify with tests |
+| `add-api-endpoint` | 5 | Analyze patterns, plan, implement, write tests, verify |
+| `debug-issue` | 5 | Reproduce, diagnose, fix, verify, add regression test |
+| `add-tests` | 4 | Analyze module, plan tests, implement, verify |
+| `setup-project` | 4 | Analyze directory, plan structure, configure, verify |
+
+### Commands
+
+```bash
+# List all playbooks
+xyz playbook list
+
+# Show details of a specific playbook
+xyz playbook show code-review
+
+# Run a playbook
+xyz playbook run code-review
+
+# Run with a specific model
+xyz playbook run debug-issue --model meta/llama-3.1-405b-instruct
+
+# Create a new playbook interactively
+xyz playbook create my-workflow
+
+# Delete a playbook
+xyz playbook delete my-workflow
+```
+
+### Slash Commands
+
+| Command | Description |
+|---------|-------------|
+| `/playbooks` | List available playbooks with descriptions |
+| `/playbook <name>` | Execute a playbook by name |
+
+### Architecture
+
+Each playbook step runs as an independent `AgentPlanner` instance in the specified mode:
+- **explore** — read-only search and analysis
+- **plan** — read-only analysis and planning
+- **build** — full tool access for execution
+
+Steps execute sequentially — each step's output is streamed to the user in real-time.
+
+### Storage
+
+Playbooks are stored as YAML files in `~/.xyz/playbooks/`:
+
+```
+~/.xyz/playbooks/
+├── code-review.yml
+├── refactor-module.yml
+├── add-api-endpoint.yml
+├── debug-issue.yml
+├── add-tests.yml
+├── setup-project.yml
+└── <custom-playbooks>.yml
+```
+
+Built-in playbooks are automatically installed on `xyz init` or the first `xyz playbook` command.
 
 ---
 
@@ -669,7 +885,8 @@ Configuration is stored at `~/.xyz/config.json`:
   "effor_level": "auto",
   "fast_mode": false,
   "compact_auto": true,
-  "share_enabled": "manual"
+  "share_enabled": "manual",
+  "autoupdate": true
 }
 ```
 
@@ -689,7 +906,8 @@ API keys can be set via:
 ├── providers/         # Provider configs
 ├── commands/          # Custom commands
 ├── agents/            # Custom agents
-└── themes/            # Custom themes
+├── themes/            # Custom themes
+└── playbooks/         # Automation playbooks (*.yml)
 ```
 
 ---
@@ -761,6 +979,31 @@ pytest tests/test_safety.py -v
 ---
 
 ## Changelog
+
+### v0.3.0 (2026-05-27)
+
+**Playbook System — Reusable AI Workflow Automation**
+
+- **Playbook Engine**: Define multi-step AI agent workflows as YAML files
+- **6 Built-in Playbooks**: code-review, refactor-module, add-api-endpoint, debug-issue, add-tests, setup-project
+- **Multi-mode Steps**: Each step can run in build, plan, or explore mode
+- **CLI Commands**: `xyz playbook list`, `xyz playbook show`, `xyz playbook run`, `xyz playbook create`, `xyz playbook delete`
+- **Slash Commands**: `/playbooks` (list), `/playbook <name>` (run)
+- **Interactive Creation**: `xyz playbook create` guides you through step-by-step workflow definition
+- **Auto-installation**: Built-in playbooks are seeded on `xyz init`
+- **YAML Storage**: Playbooks stored at `~/.xyz/playbooks/*.yml`
+- **10 new tests** covering playbook CRUD, serialization, built-in initialization
+
+**Files Added:**
+- `agent/playbook.py` - Playbook models (Pydantic), YAML I/O, built-in definitions, engine
+- `tests/test_playbook.py` - 10 comprehensive tests
+
+**Files Modified:**
+- `config.py` - Added `PLAYBOOKS_DIR`, updated `ensure_dirs()` and `get_config_paths()`
+- `main.py` - Added `playbook` CLI group with 5 subcommands, 2 slash command handlers
+- `ui/terminal.py` - Added `/playbooks` and `/playbook` to COMMANDS_LIST
+- `__init__.py` - Bumped version to 0.3.0
+- `README.md` - Updated with comprehensive Playbook System documentation
 
 ### v0.2.0 (2026-05-21)
 

@@ -29,6 +29,10 @@ from xyz.agent.planner import AgentPlanner
 from xyz.agent.memory import SessionMemory
 from xyz.agent.tools import read_file, write_file, edit_file, execute_shell, grep_files, glob_files
 from xyz.agent.safety import is_hard_blocked
+from xyz.agent.playbook import (
+    Playbook, PlaybookStep, load_playbook, save_playbook,
+    list_playbooks, delete_playbook, init_builtin_playbooks,
+)
 from xyz.utils.files import get_context_summary
 
 app = typer.Typer(
@@ -146,6 +150,9 @@ def cmd_init():
     console.print(f"[green]✓ Default model: {config.default_model}[/]")
     console.print()
     init_project_agents()
+    count = init_builtin_playbooks()
+    if count:
+        console.print(f"[green]✓ {count} built-in playbooks installed[/]")
 
 
 def run_chat(
@@ -431,6 +438,176 @@ def version():
     console.print(f"[dim]Python {sys.version.split()[0]}[/]")
 
 
+@app.group()
+def playbook():
+    """Manage and run automation playbooks."""
+    pass
+
+
+@playbook.command(name="list")
+def playbook_list():
+    """List available playbooks."""
+    init_builtin_playbooks()
+    pbs = list_playbooks()
+    if not pbs:
+        console.print("[yellow]No playbooks found.[/]")
+        return
+    table = Table(title="[bold]Playbooks[/]", border_style="cyan")
+    table.add_column("Name", style="cyan")
+    table.add_column("Description")
+    table.add_column("Steps", justify="right")
+    table.add_column("Tags")
+    for pb in pbs:
+        tags = ", ".join(pb["tags"][:3]) if pb["tags"] else ""
+        table.add_row(pb["name"], pb["description"][:60], str(pb["steps"]), tags)
+    console.print()
+    console.print(table)
+    console.print()
+
+
+@playbook.command(name="show")
+def playbook_show(
+    name: str = typer.Argument(..., help="Playbook name"),
+):
+    """Show details of a playbook."""
+    pb = load_playbook(name)
+    if not pb:
+        console.print(f"[red]Playbook '{name}' not found.[/]")
+        raise typer.Exit(1)
+    console.print()
+    console.print(f"[bold cyan]{pb.name}[/] v{pb.version}")
+    console.print(f"[dim]{pb.description}[/]")
+    if pb.author:
+        console.print(f"[dim]Author: {pb.author}[/]")
+    if pb.tags:
+        console.print(f"[dim]Tags: {', '.join(pb.tags)}[/]")
+    console.print()
+    for i, step in enumerate(pb.steps, 1):
+        mode_tag = f"[{'green' if step.mode == 'build' else 'yellow'}]{step.mode.upper()}[/]"
+        confirm_tag = " [red][requires confirmation][/]" if step.confirm else ""
+        console.print(f"  {i}. [{mode_tag}] {step.instruction[:80]}{'...' if len(step.instruction) > 80 else ''}{confirm_tag}")
+    console.print()
+
+
+@playbook.command(name="create")
+def playbook_create(
+    name: str = typer.Argument(..., help="Playbook name"),
+):
+    """Create a new playbook interactively."""
+    ui = TerminalUI()
+    ui.console.print(f"[cyan]Creating playbook: {name}[/]")
+    description = ui.get_input("Description: ")
+    steps = []
+    ui.console.print("[dim]Enter step instructions (empty line to finish):[/]")
+    while True:
+        instruction = ui.get_input(f"Step {len(steps) + 1}: ")
+        if not instruction:
+            break
+        mode = ui.get_input("  Mode (build/plan/explore) [build]: ") or "build"
+        steps.append(PlaybookStep(instruction=instruction, mode=mode))
+    if not steps:
+        ui.print_error("No steps defined.")
+        return
+    pb = Playbook(name=name, description=description, steps=steps)
+    path = save_playbook(pb)
+    ui.print_success(f"Playbook saved: {path}")
+
+
+@playbook.command(name="delete")
+def playbook_delete(
+    name: str = typer.Argument(..., help="Playbook name"),
+):
+    """Delete a playbook."""
+    if delete_playbook(name):
+        console.print(f"[green]✓ Deleted playbook '{name}'[/]")
+    else:
+        console.print(f"[red]Playbook '{name}' not found.[/]")
+
+
+@playbook.command(name="run")
+def playbook_run(
+    name: str = typer.Argument(..., help="Playbook name"),
+    model: Optional[str] = typer.Option(None, "--model", "-m", help="Model to use"),
+):
+    """Execute a playbook's steps sequentially."""
+    config = load_config()
+    if not config.api_key_set or not get_api_key():
+        console.print("[red]XYZ not initialized. Run 'xyz init' first.[/]")
+        raise typer.Exit(1)
+
+    pb = load_playbook(name)
+    if not pb:
+        console.print(f"[red]Playbook '{name}' not found.[/]")
+        raise typer.Exit(1)
+
+    port = find_free_port()
+    config.gateway_port = port
+    save_config(config)
+
+    with console.status(f"[cyan]Starting gateway on port {port}...[/]"):
+        if not start_gateway(port):
+            raise typer.Exit(1)
+
+    gateway_url = f"http://127.0.0.1:{port}"
+    ui = TerminalUI()
+    ui.show_banner()
+    ui.print_success(f"Running playbook: {pb.name}")
+    ui.console.print(f"[dim]{pb.description}[/]")
+    ui.console.print()
+    ui.start_status_bar()
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    try:
+        for i, step in enumerate(pb.steps, 1):
+            ui.console.print(f"[bold cyan]Step {i}/{len(pb.steps)}:[/] {step.instruction[:80]}")
+            ui.console.print(f"[dim]Mode: {step.mode}[/]")
+            ui.console.print()
+
+            planner = AgentPlanner(gateway_url, agent_mode=step.mode)
+            use_model = model or config.default_model
+
+            try:
+                async def run_step(planner, step, use_model, config, ui):
+                    ui.current_status = "thinking"
+                    ui.update_status_bar()
+                    async for output in planner.process(
+                        step.instruction,
+                        use_model,
+                        trust_mode=config.trust_mode,
+                        on_status=lambda s: setattr(ui, "current_status", s) or ui.update_status_bar(),
+                        on_token=lambda t: ui.stream_text(t),
+                    ):
+                        if output.startswith("\n["):
+                            pass
+                        elif output.startswith("[CONFIRM]"):
+                            ui.console.print(output, end="", markup=False)
+                        else:
+                            ui.stream_text(output)
+                    ui.console.print()
+                    ui.current_status = "ready"
+                    ui.update_status_bar()
+
+                loop.run_until_complete(run_step(planner, step, use_model, config, ui))
+            except Exception as e:
+                ui.print_error(f"Step {i} failed: {str(e)}")
+                break
+
+            ui.console.print()
+            ui.console.print(Rule(style=ui.theme.muted))
+            ui.console.print()
+
+        ui.print_success(f"Playbook '{pb.name}' completed!")
+    except KeyboardInterrupt:
+        console.print()
+        console.print("[yellow]Playbook interrupted.[/]")
+    finally:
+        ui.stop_status_bar()
+        loop.close()
+        stop_gateway()
+
+
 def _handle_command(cmd: str, ui: TerminalUI, planner, config, gateway_url: str) -> bool:
     """Returns True if session should continue, False to exit."""
     parts = cmd.split()
@@ -589,6 +766,14 @@ def _handle_command(cmd: str, ui: TerminalUI, planner, config, gateway_url: str)
 
     if command == "/connect":
         _cmd_connect(ui, config)
+        return True
+
+    if command == "/playbook":
+        _cmd_playbook_run(ui, parts)
+        return True
+
+    if command == "/playbooks":
+        _cmd_playbook_list(ui)
         return True
 
     if command == "/details":
@@ -959,6 +1144,71 @@ def _cmd_connect(ui, config):
         set_api_key(api_key)
         models = discover_models(api_key)
         ui.print_success(f"✓ Connected. {len(models)} models available.")
+
+
+def _cmd_playbook_list(ui):
+    init_builtin_playbooks()
+    pbs = list_playbooks()
+    if not pbs:
+        ui.print_warning("No playbooks found.")
+        return
+    ui.console.print()
+    ui.console.print(f"[{ui.theme.primary}]Available Playbooks[/]")
+    ui.console.print()
+    for pb in pbs:
+        tags = f"[dim][{', '.join(pb['tags'][:3])}][/]" if pb["tags"] else ""
+        ui.console.print(f"  [{ui.theme.secondary}]{pb['name']}[/] - {pb['description'][:70]}{tags}")
+    ui.console.print()
+    ui.console.print(f"[{ui.theme.muted}]Use /playbook <name> to run one[/]")
+    ui.console.print()
+
+
+def _cmd_playbook_run(ui, parts):
+    if len(parts) < 2:
+        ui.print_error("Usage: /playbook <name>")
+        return
+    name = parts[1]
+    pb = load_playbook(name)
+    if not pb:
+        ui.print_error(f"Playbook '{name}' not found. Use /playbooks to list available ones.")
+        return
+    config = load_config()
+    gateway_url = f"http://127.0.0.1:{config.gateway_port}"
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    ui.console.print()
+    ui.print_success(f"Running playbook: {pb.name} ({len(pb.steps)} steps)")
+    ui.console.print()
+    for i, step in enumerate(pb.steps, 1):
+        ui.console.print(f"[bold cyan]Step {i}/{len(pb.steps)}:[/] {step.instruction[:80]}")
+        ui.console.print()
+        planner = AgentPlanner(gateway_url, agent_mode=step.mode)
+        try:
+            async def run_step(planner, step, config, ui):
+                ui.current_status = "thinking"
+                ui.update_status_bar()
+                async for output in planner.process(
+                    step.instruction, config.default_model,
+                    trust_mode=config.trust_mode,
+                    on_status=lambda s: setattr(ui, "current_status", s) or ui.update_status_bar(),
+                    on_token=lambda t: ui.stream_text(t),
+                ):
+                    if output.startswith("[CONFIRM]"):
+                        ui.console.print(output, end="", markup=False)
+                    else:
+                        ui.stream_text(output)
+                ui.console.print()
+                ui.current_status = "ready"
+                ui.update_status_bar()
+            loop.run_until_complete(run_step(planner, step, config, ui))
+        except Exception as e:
+            ui.print_error(f"Step {i} failed: {str(e)}")
+            break
+        ui.console.print()
+        ui.console.print(Rule(style=ui.theme.muted))
+        ui.console.print()
+    ui.print_success(f"Playbook '{pb.name}' completed!")
+    loop.close()
 
 
 def _interactive_model_selector(ui, config, planner):

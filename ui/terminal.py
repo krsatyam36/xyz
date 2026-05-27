@@ -81,6 +81,8 @@ COMMANDS_LIST = [
     ("/color <name>", "Set prompt color"),
     ("/add-dir <path>", "Add working directory"),
     ("/feedback", "Submit feedback"),
+    ("/playbooks", "List available playbooks"),
+    ("/playbook <name>", "Run a playbook"),
     ("/quit", "Exit XYZ"),
 ]
 

@@ -16,6 +16,7 @@ COMMANDS_DIR = XYZ_DIR / "commands"
 AGENTS_DIR = XYZ_DIR / "agents"
 THEMES_DIR = XYZ_DIR / "themes"
 PLUGINS_DIR = XYZ_DIR / "plugins"
+PLAYBOOKS_DIR = XYZ_DIR / "playbooks"
 
 SERVICE_NAME = "xyz-cli"
 KEYRING_KEY = "nim_api_key"
@@ -67,6 +68,7 @@ def ensure_dirs():
     AGENTS_DIR.mkdir(exist_ok=True)
     THEMES_DIR.mkdir(exist_ok=True)
     PLUGINS_DIR.mkdir(exist_ok=True)
+    PLAYBOOKS_DIR.mkdir(exist_ok=True)
 
 
 def load_config() -> XYZConfig:
@@ -182,6 +184,7 @@ def get_config_paths() -> dict:
         "providers": str(PROVIDERS_DIR),
         "commands": str(COMMANDS_DIR),
         "agents": str(AGENTS_DIR),
+        "playbooks": str(PLAYBOOKS_DIR),
     }
 
 
